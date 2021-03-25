@@ -9,6 +9,7 @@ project(study-air-hockey)
 find_package(YARP 3.3.0 REQUIRED COMPONENTS os sig dev math)
 find_package(ICUB REQUIRED COMPONENTS ctrlLib)
 find_package(ICUBcontrib REQUIRED)
+find_package(Python3 COMPONENTS Development NumPy)
 
 list(APPEND CMAKE_MODULE_PATH ${ICUBCONTRIB_MODULE_PATH})
 
@@ -27,8 +28,11 @@ install(TARGETS ${PROJECT_NAME}-1 DESTINATION bin)
 add_executable(${PROJECT_NAME}-2 ${CMAKE_SOURCE_DIR}/src/study-2.cpp)
 target_include_directories(${PROJECT_NAME}-2 PRIVATE /workspace/spline/src)
 target_compile_definitions(${PROJECT_NAME}-2 PRIVATE _USE_MATH_DEFINES)
-target_link_libraries(${PROJECT_NAME}-2 ${YARP_LIBRARIES} ICUB::ctrlLib)
+target_link_libraries(${PROJECT_NAME}-2 ${YARP_LIBRARIES} ICUB::ctrlLib
+                                                          Python3::Python Python3::NumPy)
 install(TARGETS ${PROJECT_NAME}-2 DESTINATION bin)
+
+target_include_directories(${PROJECT_NAME}-2 PRIVATE ${Python3_INCLUDE_DIRS} ${Python3_NumPy_INCLUDE_DIRS})
 
 icubcontrib_add_uninstall_target()
 
@@ -36,3 +40,4 @@ file(GLOB conf ${CMAKE_SOURCE_DIR}/app/conf/*.ini ${CMAKE_SOURCE_DIR}/app/conf/*
 file(GLOB scripts ${CMAKE_SOURCE_DIR}/app/scripts/*.xml)
 yarp_install(FILES ${conf} DESTINATION ${ICUBCONTRIB_CONTEXTS_INSTALL_DIR}/${PROJECT_NAME})
 yarp_install(FILES ${scripts} DESTINATION ${ICUBCONTRIB_APPLICATIONS_INSTALL_DIR})
+
