@@ -34,6 +34,8 @@
 #include <yarp/dev/IPositionControl.h>
 #include <yarp/dev/IPositionDirect.h>
 #include <yarp/dev/CartesianControl.h>
+#include <yarp/dev/GazeControl.h>
+#include <yarp/dev/IControlLimits.h>
 
 #include <iCub/ctrl/minJerkCtrl.h>
 
@@ -52,6 +54,11 @@ class ControllerModule: public yarp::os::RFModule
     yarp::dev::PolyDriver drv_arm;
     yarp::dev::ICartesianControl* arm;
 
+    yarp::dev::PolyDriver drv_gaze;
+    yarp::dev::IGazeControl* gaze;
+
+    yarp::dev::IControlLimits* ilim;
+
     std::string table_file;
     std::vector<std::shared_ptr<tk::spline>> interp;
     double y_min, y_max;
@@ -60,11 +67,14 @@ class ControllerModule: public yarp::os::RFModule
     double artificial_y_pos_puck, artificial_y_pos_puck_prec;
     int direction;
     std::vector<double> head_yaw, y_ee, elapsed_time;
-
-    int startup_context_id_arm;
+    bool artificial=false;
+    int u,v, puck_tracked;
+    yarp::sig::Vector puck_rf{0.,0.,0.};
+    std::vector<double> fingers_posture;
+    std::ofstream myfile;
 
     yarp::os::BufferedPort<yarp::os::Bottle> targetPort;
-    yarp::os::BufferedPort<yarp::os::Bottle> headPort, yposPort;
+    yarp::os::BufferedPort<yarp::os::Bottle> headPort, yposPort, puckPort, hand_pix_port;
     std::shared_ptr<iCub::ctrl::minJerkTrajGen> reference;
     yarp::sig::Vector target{0.};
 
@@ -80,6 +90,7 @@ class ControllerModule: public yarp::os::RFModule
         drv[i].view(ipos[i]);
         drv[i].view(iposd[i]);
         drv[i].view(imod);
+        drv[i].view(ilim);
         int naxes;
         ipos[i]->getAxes(&naxes);
         std::vector<int> modes(naxes, VOCAB_CM_POSITION);
@@ -89,6 +100,11 @@ class ControllerModule: public yarp::os::RFModule
         imod->setControlModes(modes.data());
         ipos[i]->setRefSpeeds(vels.data());
         ipos[i]->setRefAccelerations(accs.data());
+        if (naxes==16){
+            double pinkie_min, pinkie_max;
+            ilim -> getLimits(15, &pinkie_min, &pinkie_max);
+            fingers_posture={60., 80., 40., 35., 40., 35., 40., 35., pinkie_max};
+        }
         switch (naxes) {
             case 3:
                 for (size_t i = 0; i < 3; i++) {
@@ -98,6 +114,9 @@ class ControllerModule: public yarp::os::RFModule
             case 16:
                 for (size_t i = 0; i < 7; i++) {
                     poss[i] = interp[3 + i]->operator()(0.);
+                }
+                for (size_t i = 7; i < 16; i++){
+                    poss[i] = fingers_posture[i-7]; //for grasping the paddle
                 }
                 break;
             case 6:
@@ -164,10 +183,38 @@ class ControllerModule: public yarp::os::RFModule
 
     double incrementOutput(int dir, double y_cart)
     {
-
         y_cart += 0.006 * dir; // 5cm
 
         return y_cart;
+    }
+
+    yarp::sig::Vector projectToVisualSpace(yarp::sig::Vector robPos){
+        yarp::sig::Vector imagePos;
+        imagePos.resize(2);
+
+        gaze->get2DPixel(0, robPos, imagePos); // project the hand Cartesian position into the image plane
+
+        return imagePos;
+    }
+
+    yarp::sig::Vector projectToRobotSpace(int u_puck, int v_puck) {
+
+        yarp::sig::Vector puckPix_vec, puckPos_rob;
+        puckPix_vec.resize(2); puckPos_rob.resize(3);
+        puckPix_vec[0] = u_puck;
+        puckPix_vec[1] = v_puck;
+        int whichImagePlane = 0; // image plane: 0 for left and 1 for right
+
+        yarp::sig::Vector plane{0., 0., 1.0, 0.09};
+
+        // useful to know the position wrt robot reference frame without knowing the plane on which the puck is moving
+        gaze->get3DPointOnPlane(whichImagePlane, puckPix_vec, plane, puckPos_rob);
+
+        // defensive movements along y direction (x and z are set equal to the initial Cartesian position)
+        puckPos_rob[0] = -0.25;
+        puckPos_rob[2] = -0.05;
+
+        return puckPos_rob;
     }
 
     /********************************************************************/
@@ -191,13 +238,32 @@ class ControllerModule: public yarp::os::RFModule
             return false;
         }
 
+        yarp::os::Property options_gaze;
+        options_gaze.put("device", "gazecontrollerclient");
+        options_gaze.put("remote", "/iKinGazeCtrl");
+        options_gaze.put("local", "/study-arm-hockey/gaze");
+        if (!helperWaitDevice(drv_gaze, options_gaze, "Gaze Controller")) {
+            drv_arm.close();
+            return false;
+        }
+
         drv_arm.view(arm);
+        drv_gaze.view(gaze);
 
         targetPort.open("/study-arm-hockey/target");
         headPort.open("/study-arm-hockey/head");
         yposPort.open("/study-arm-hockey/ypos");
+        puckPort.open("/study-arm-hockey/puck");
+        hand_pix_port.open("/study-arm-hockey/hand-pixels");
         reference = std::make_shared<iCub::ctrl::minJerkTrajGen>(target, getPeriod(), T);
         first=true;
+
+        myfile.open("head.txt");
+        if (!myfile.is_open())
+        {
+            yError()<<"Could not open file for printing head yaw wrt torso yaw";
+            return 0;
+        }
 
         return true;
     }
@@ -217,6 +283,8 @@ class ControllerModule: public yarp::os::RFModule
         targetPort.close();
         headPort.close();
         yposPort.close();
+        puckPort.close();
+        hand_pix_port.close();
 
         plt::figure(1);
         plt::plot(elapsed_time, head_yaw, "r-");
@@ -247,78 +315,118 @@ class ControllerModule: public yarp::os::RFModule
 //            target[0] = std::max(std::min(p, y_max), y_min); // to avoid going beyond the limits ymin and ymax
 //        }
 
-        if (first) {
-            artificial_y_pos_puck = incrementOutput(1, 0);
-            first = false;
-            direction = 1;
-        } else {
-            artificial_y_pos_puck = incrementOutput(direction, artificial_y_pos_puck_prec);
-        }
-
-        double max = 0.12;
+        double max = 0.3;
         double min = -0.3;
-        int dir_mul = 1;
-        if (artificial_y_pos_puck >= max || artificial_y_pos_puck <= min) {
-            static double holdon_time = yarp::os::Time::now();
-            if (yarp::os::Time::now() - holdon_time < 2){
-                dir_mul = 0;
+
+        if (artificial){
+            if (first) {
+                artificial_y_pos_puck = incrementOutput(1, 0);
+                first = false;
+                direction = 1;
             } else {
-                dir_mul = 1;
-                direction *= -1 * dir_mul;
-                holdon_time = yarp::os::Time::now();
+                artificial_y_pos_puck = incrementOutput(direction, artificial_y_pos_puck_prec);
             }
+
+            int dir_mul = 1;
+            if (artificial_y_pos_puck >= max || artificial_y_pos_puck <= min) {
+                static double holdon_time = yarp::os::Time::now();
+                if (yarp::os::Time::now() - holdon_time < 2) {
+                    dir_mul = 0;
+                } else {
+                    dir_mul = 1;
+                    direction *= -1 * dir_mul;
+                    holdon_time = yarp::os::Time::now();
+                }
+            } else
+                artificial_y_pos_puck_prec = artificial_y_pos_puck;
+
+            puck_tracked=true;
+
+            target[0] = artificial_y_pos_puck;
         }
-        else
-            artificial_y_pos_puck_prec = artificial_y_pos_puck;
+        else{
 
-        target[0]=artificial_y_pos_puck;
-        reference->computeNextValues(target);
+            yarp::sig::Vector currentArmPos, currentArmOrient, hand_pix;
+            arm->getPose(currentArmPos, currentArmOrient);
+            hand_pix = projectToVisualSpace(currentArmPos);
 
-        std::vector<double> pos_torso(3);
-        for (size_t i = 0; i < pos_torso.size(); i++) {
-            pos_torso[pos_torso.size() - 1 - i] = interp[i]->operator()(reference->getPos()[0]);
+            std::cout << "u_hand:"<<hand_pix[0]<<", v_hand:"<<hand_pix[1]<<std::endl;
+
+            // BOTTLE for printing the current u and v of the arm and of the puck in the visual space
+            yarp::os::Bottle &hand_pix_bottle = hand_pix_port.prepare();
+            hand_pix_bottle.clear();
+            hand_pix_bottle.addDouble(hand_pix[0]); // x position of the hand wrt image plane
+            hand_pix_bottle.addDouble(hand_pix[1]); // y position of the hand wrt image plane
+//        // communicate if the hand is present in the image plane
+//        if (hand_pix[0]>0 && hand_pix[0]<304 && hand_pix[1]>0 && hand_pix[1]<240)
+//            hand_pix_bottle.addInt(1);
+//        else
+//            hand_pix_bottle.addInt(0);
+
+            hand_pix_port.write();
+
+            yarp::os::Bottle *b = puckPort.read();
+            u = b->get(0).asInt(); // x coordinate of the pixel within the image plane
+            v = b->get(1).asInt(); // y coordinate of the pixel within the image plane
+            puck_tracked = b->get(2).asInt(); //verify if the target is tracked or not
+            std::cout << "u_puck = "<<u<<", v_puck = "<<v<<", tracked="<<puck_tracked<<std::endl;
+
+            puck_rf = projectToRobotSpace(u,v);
+
+            target[0]=puck_rf[1];
+
+            std::cout<<"TARGET y="<<target[0]<<std::endl;
         }
-        iposd[0]->setPositions(pos_torso.data());
 
-        std::vector<double> pos_arm(7);
-        for (size_t i = 0; i < pos_arm.size(); i++) {
-            pos_arm[i] = interp[pos_torso.size() + i]->operator()(reference->getPos()[0]);
+        if (puck_tracked && (target[0]>min && target[0]<max)){
+            reference->computeNextValues(target);
+
+            std::vector<double> pos_torso(3);
+            for (size_t i = 0; i < pos_torso.size(); i++) {
+                pos_torso[pos_torso.size() - 1 - i] = interp[i]->operator()(reference->getPos()[0]);
+            }
+            iposd[0]->setPositions(pos_torso.data());
+
+            std::vector<double> pos_arm(7);
+            for (size_t i = 0; i < pos_arm.size(); i++) {
+                pos_arm[i] = interp[pos_torso.size() + i]->operator()(reference->getPos()[0]);
+            }
+            iposd[1]->setPositions(pos_arm.size(), std::vector<int>({0, 1, 2, 3, 4, 5, 6, 7}).data(),
+                                   pos_arm.data());
+
+            std::vector<double> pos_head(6);
+            for (size_t i = 0; i < pos_head.size(); i++) {
+                pos_head[i] = interp[pos_torso.size() + pos_arm.size() + i]->operator()(reference->getPos()[0]);
+            }
+            iposd[2]->setPositions(pos_head.data());
+
+            std::vector<double> actual_pos_torso(3);
+            iposd[0]->getRefPositions(actual_pos_torso.data());
+
+            std::vector<double> actual_pos_head(6);
+            iposd[2]->getRefPositions(actual_pos_head.data());
+
+            yarp::os::Bottle &head_bottle = headPort.prepare();
+            head_bottle.clear();
+            head_bottle.addDouble(actual_pos_head[2]-actual_pos_torso[0]);
+            headPort.write();
+
+            static double time = yarp::os::Time::now();
+            yarp::sig::Vector x_actual, o_actual;
+            arm->getPose(x_actual, o_actual);
+
+            head_yaw.push_back(actual_pos_head[2]-actual_pos_torso[0]);
+            elapsed_time.push_back(yarp::os::Time::now()-time);
+            y_ee.push_back(x_actual[1]);
+
+//            myfile << target[0] << "\t" << x_actual[1] << "\t" << actual_pos_head[2]-actual_pos_torso[0] << '\n';
+
+            yarp::os::Bottle &ypos_bottle = yposPort.prepare();
+            ypos_bottle.clear();
+            ypos_bottle.addDouble(x_actual[1]);
+            ypos_bottle.addDouble(target[0]);
+            yposPort.write();
         }
-        iposd[1]->setPositions(pos_arm.size(), std::vector<int>({0, 1, 2, 3, 4, 5, 6, 7}).data(),
-                              pos_arm.data());
-
-        std::vector<double> pos_head(6);
-        for (size_t i = 0; i < pos_head.size(); i++) {
-            pos_head[i] = interp[pos_torso.size() + pos_arm.size() + i]->operator()(reference->getPos()[0]);
-        }
-        iposd[2]->setPositions(pos_head.data());
-
-        std::vector<double> actual_pos_torso(3);
-        iposd[0]->getRefPositions(actual_pos_torso.data());
-
-        std::vector<double> actual_pos_head(6);
-        iposd[2]->getRefPositions(actual_pos_head.data());
-
-        yarp::os::Bottle &head_bottle = headPort.prepare();
-        head_bottle.clear();
-        head_bottle.addDouble(actual_pos_head[2]-actual_pos_torso[0]);
-        headPort.write();
-
-        static double time = yarp::os::Time::now();
-        yarp::sig::Vector x_actual, o_actual;
-        arm->getPose(x_actual, o_actual);
-
-        head_yaw.push_back(actual_pos_head[2]-actual_pos_torso[0]);
-        elapsed_time.push_back(yarp::os::Time::now()-time);
-        y_ee.push_back(x_actual[1]);
-
-        yInfo()<<x_actual[1];
-
-        yarp::os::Bottle &ypos_bottle = yposPort.prepare();
-        ypos_bottle.clear();
-        ypos_bottle.addDouble(x_actual[1]);
-        ypos_bottle.addDouble(target[0]);
-        yposPort.write();
 
         return true;
     }
