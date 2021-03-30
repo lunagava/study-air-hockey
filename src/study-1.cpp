@@ -50,6 +50,8 @@ class ControllerModule: public yarp::os::RFModule
 
     double y_min, y_max, y_delta, y;
 
+    std::string robot, which_arm;
+
     static constexpr double wait_ping{.1};
     static constexpr double wait_tmo{3.};
 
@@ -107,6 +109,9 @@ class ControllerModule: public yarp::os::RFModule
     bool configure(yarp::os::ResourceFinder& rf) override {
         table_file = rf.getHomeContextPath() + "/" +
                      rf.check("table-file", yarp::os::Value("table.tsv")).asString();
+        setName((rf.check("name", yarp::os::Value("/study-air-hockey")).asString()).c_str());
+        robot = rf.check("robot", yarp::os::Value("icubSim")).asString();
+        which_arm = rf.check("arm", yarp::os::Value("left_arm")).asString();
         const auto torso_joints = rf.check("torso-joints", yarp::os::Value(1)).asInt();
         const auto torso_pitch = rf.check("torso-pitch", yarp::os::Value(30.)).asDouble();
         y_min = std::abs(rf.check("y-min", yarp::os::Value(.15)).asDouble());
@@ -117,8 +122,8 @@ class ControllerModule: public yarp::os::RFModule
 
         yarp::os::Property options_arm;
         options_arm.put("device", "cartesiancontrollerclient");
-        options_arm.put("remote", "/icubSim/cartesianController/left_arm");
-        options_arm.put("local", "/study-arm-hockey/left_arm");
+        options_arm.put("remote", "/"+ robot +"/cartesianController/" + which_arm);
+        options_arm.put("local", getName() + "/" + which_arm);
         if (!helperWaitDevice(drv_arm, options_arm, "Cartesian Controller")) {
             return false;
         }
@@ -126,7 +131,7 @@ class ControllerModule: public yarp::os::RFModule
         yarp::os::Property options_gaze;
         options_gaze.put("device", "gazecontrollerclient");
         options_gaze.put("remote", "/iKinGazeCtrl");
-        options_gaze.put("local", "/study-arm-hockey/gaze");
+        options_gaze.put("local", getName() + "/gaze");
         if (!helperWaitDevice(drv_gaze, options_gaze, "Gaze Controller")) {
             drv_arm.close();
             return false;
