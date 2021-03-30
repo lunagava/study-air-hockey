@@ -74,8 +74,8 @@ class ControllerModule: public yarp::os::RFModule
     typedef std::tuple <double, double> my_tuple;
     std::vector<my_tuple> head_status, xpos_status, zpos_status;
     std::string which_arm, robot;
-    int test=2;
-    bool artificial=false;
+    int test;
+    bool artificial;
 
     yarp::os::BufferedPort<yarp::os::Bottle> targetPort;
     yarp::os::BufferedPort<yarp::os::Bottle> headPort, yposPort, puckPort, hand_pix_port;
@@ -303,6 +303,8 @@ class ControllerModule: public yarp::os::RFModule
     bool configure(yarp::os::ResourceFinder& rf) override {
         table_file = rf.findFile("table-file");
         const auto T = std::abs(rf.check("T", yarp::os::Value(1.)).asDouble());
+        test = rf.check("test", yarp::os::Value(1)).asInt();
+        artificial = rf.check("artificial", yarp::os::Value(true)).asBool();
 
         if (!readTable()) {
             return false;
@@ -400,8 +402,8 @@ class ControllerModule: public yarp::os::RFModule
 
         if (test==2) {
 
-            y_max = 0.15;
-            y_min = -0.3;
+            y_max = 0.12;
+            y_min = -0.15;
 
             if (artificial) {
                 if (first) {
