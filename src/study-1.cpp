@@ -48,7 +48,7 @@ class ControllerModule: public yarp::os::RFModule
     yarp::sig::Vector x0{-.25, .0, -.05}, o0;
     yarp::sig::Vector fixation{-.7, .0, -.05};
 
-    double y_max, y_delta, y;
+    double y_min, y_max, y_delta, y;
 
     static constexpr double wait_ping{.1};
     static constexpr double wait_tmo{3.};
@@ -109,6 +109,7 @@ class ControllerModule: public yarp::os::RFModule
                      rf.check("table-file", yarp::os::Value("table.tsv")).asString();
         const auto torso_joints = rf.check("torso-joints", yarp::os::Value(1)).asInt();
         const auto torso_pitch = rf.check("torso-pitch", yarp::os::Value(30.)).asDouble();
+        y_min = std::abs(rf.check("y-min", yarp::os::Value(.15)).asDouble());
         y_max = std::abs(rf.check("y-max", yarp::os::Value(.15)).asDouble());
         y_delta = std::abs(rf.check("y-delta", yarp::os::Value(.005)).asDouble());
         helperFillVector(rf, "x0", x0);
@@ -164,7 +165,8 @@ class ControllerModule: public yarp::os::RFModule
         gaze->lookAtFixationPoint(fixation);
         gaze->waitMotionDone(wait_ping, wait_tmo);
 
-        y = -y_max;
+        y=-y_min;
+//        y = -y_max;
         return true;
     }
 
