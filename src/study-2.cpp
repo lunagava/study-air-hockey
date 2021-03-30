@@ -66,12 +66,14 @@ class ControllerModule: public yarp::os::RFModule
     bool first;
     double artificial_y_pos_puck, artificial_y_pos_puck_prec;
     int direction;
-    std::vector<double> head_yaw, y_ee, elapsed_time;
-    bool artificial=false;
+    std::vector<double> head_yaw, y_range, x_ee, y_ee, z_ee, x_des, y_des, z_des, elapsed_time;
+    bool artificial=true;
     int u,v, puck_tracked;
     yarp::sig::Vector puck_rf{0.,0.,0.};
     std::vector<double> fingers_posture;
     std::ofstream myfile;
+    typedef std::tuple <double, double> my_tuple;
+    std::vector<my_tuple> head_status;
 
     yarp::os::BufferedPort<yarp::os::Bottle> targetPort;
     yarp::os::BufferedPort<yarp::os::Bottle> headPort, yposPort, puckPort, hand_pix_port;
@@ -217,6 +219,12 @@ class ControllerModule: public yarp::os::RFModule
         return puckPos_rob;
     }
 
+    static auto sortbysec(const std::tuple<double, double>& a,
+                   const std::tuple<double, double>& b)
+    {
+        return (std::get<1>(a) < std::get<1>(b));
+    }
+
     /********************************************************************/
     bool configure(yarp::os::ResourceFinder& rf) override {
         table_file = rf.findFile("table-file");
@@ -286,18 +294,6 @@ class ControllerModule: public yarp::os::RFModule
         puckPort.close();
         hand_pix_port.close();
 
-        plt::figure(1);
-        plt::plot(elapsed_time, head_yaw, "r-");
-        plt::title("Head yaw wrt torso yaw");
-        plt::xlabel("Time [s]"); plt::ylabel("[deg]");
-        plt::save("head_time.png");
-
-        plt::figure(2);
-        plt::plot(y_ee, head_yaw, "r-");
-        plt::title("Head yaw wrt torso yaw");
-        plt::xlabel("y [m]"); plt::ylabel("[deg]");
-        plt::save("head_y.png");
-
         yInfo()<<"Graphs done";
 
         return true;
@@ -315,8 +311,8 @@ class ControllerModule: public yarp::os::RFModule
 //            target[0] = std::max(std::min(p, y_max), y_min); // to avoid going beyond the limits ymin and ymax
 //        }
 
-        double max = 0.3;
-        double min = -0.3;
+        double max = 0.15;
+        double min = -0.35;
 
         if (artificial){
             if (first) {
@@ -375,10 +371,13 @@ class ControllerModule: public yarp::os::RFModule
 
             target[0]=puck_rf[1];
 
+            if (target[0]>min && target[0]<max)
+                puck_tracked=false;
+
             std::cout<<"TARGET y="<<target[0]<<std::endl;
         }
 
-        if (puck_tracked && (target[0]>min && target[0]<max)){
+        if (puck_tracked){
             reference->computeNextValues(target);
 
             std::vector<double> pos_torso(3);
@@ -415,9 +414,63 @@ class ControllerModule: public yarp::os::RFModule
             yarp::sig::Vector x_actual, o_actual;
             arm->getPose(x_actual, o_actual);
 
-            head_yaw.push_back(actual_pos_head[2]-actual_pos_torso[0]);
+//            head_yaw.push_back(actual_pos_head[2]-actual_pos_torso[0]);
             elapsed_time.push_back(yarp::os::Time::now()-time);
+            x_ee.push_back(x_actual[0]);
+            x_des.push_back(-0.25);
+
             y_ee.push_back(x_actual[1]);
+            y_des.push_back(target[0]);
+
+            z_ee.push_back(x_actual[2]);
+            z_des.push_back(-0.05);
+            head_status.push_back(std::make_tuple(x_actual[1],actual_pos_head[2]-actual_pos_torso[0]));
+
+            std::sort(begin(head_status), end(head_status)); //sort by first element
+
+            if (x_actual[1]<min+0.01){
+
+                for (auto entry = head_status.begin(); entry != head_status.end(); entry++) {
+                    y_range.push_back(std::get<0>(*entry));
+                    head_yaw.push_back(std::get<1>(*entry));
+                }
+
+                yInfo()<<y_range;
+                yInfo()<<head_yaw;
+
+                plt::figure(1);
+                plt::plot(y_range, head_yaw, "r-");
+                plt::title("Head yaw wrt torso yaw");
+                plt::xlabel("y [m]"); plt::ylabel("[deg]");
+                plt::save("head_y.png");
+
+                plt::figure(2);
+                plt::named_plot("actual",elapsed_time, z_ee, "b-");
+                plt::named_plot("desired",elapsed_time, z_des, "k-");
+                plt::title("z position");
+                plt::xlabel("Time [s]"); plt::ylabel("z[m]");
+                plt::legend();
+                plt::save("z_pos_-0.3<y<0.12.png");
+
+                plt::figure(3);
+                plt::named_plot("actual",elapsed_time, y_ee, "g-");
+                plt::named_plot("desired",elapsed_time, y_des, "k-");
+                plt::title("y position");
+                plt::xlabel("Time [s]"); plt::ylabel("y[m]");
+                plt::legend();
+                plt::save("y_pos_-0.3<y<0.12.png");
+
+                plt::figure(4);
+                plt::named_plot("actual",elapsed_time, x_ee, "r-");
+                plt::named_plot("desired",elapsed_time, x_des, "k-");
+                plt::title("x position");
+                plt::xlabel("Time [s]"); plt::ylabel("x[m]");
+                plt::legend();
+                plt::save("x_pos_-0.3<y<0.12.png");
+
+                return 0;
+
+            }
 
 //            myfile << target[0] << "\t" << x_actual[1] << "\t" << actual_pos_head[2]-actual_pos_torso[0] << '\n';
 
