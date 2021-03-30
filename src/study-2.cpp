@@ -66,14 +66,16 @@ class ControllerModule: public yarp::os::RFModule
     bool first;
     double artificial_y_pos_puck, artificial_y_pos_puck_prec;
     int direction;
-    std::vector<double> head_yaw, y_range, x_ee, y_ee, z_ee, x_des, y_des, z_des, elapsed_time;
-    bool artificial=true;
+    std::vector<double> head_yaw, y_range, xpos, zpos, x_ee, y_ee, z_ee, x_des, y_des, z_des, elapsed_time;
     int u,v, puck_tracked;
     yarp::sig::Vector puck_rf{0.,0.,0.};
     std::vector<double> fingers_posture;
     std::ofstream myfile;
     typedef std::tuple <double, double> my_tuple;
-    std::vector<my_tuple> head_status;
+    std::vector<my_tuple> head_status, xpos_status, zpos_status;
+    std::string which_arm, robot;
+    int test=2;
+    bool artificial=false;
 
     yarp::os::BufferedPort<yarp::os::Bottle> targetPort;
     yarp::os::BufferedPort<yarp::os::Bottle> headPort, yposPort, puckPort, hand_pix_port;
@@ -84,8 +86,8 @@ class ControllerModule: public yarp::os::RFModule
     void helperOpenDevice(const int i, const std::string& device_name) {
         yarp::os::Property options;
         options.put("device", "remote_controlboard");
-        options.put("remote", "/icubSim/" + device_name);
-        options.put("local", "/study-arm-hockey/" + device_name);
+        options.put("remote", "/"+ robot +"/" + device_name);
+        options.put("local", getName()+"/" + device_name);
         drv[i].open(options);
         
         yarp::dev::IControlMode* imod;
@@ -219,10 +221,82 @@ class ControllerModule: public yarp::os::RFModule
         return puckPos_rob;
     }
 
+    std::vector<std::tuple <double, double>> sortbyfirst(std::vector<std::tuple <double, double>> tuple){
+
+        std::sort(begin(tuple), end(tuple)); //sort by first element
+        return tuple;
+    }
+
     static auto sortbysec(const std::tuple<double, double>& a,
                    const std::tuple<double, double>& b)
     {
         return (std::get<1>(a) < std::get<1>(b));
+    }
+
+    std::tuple<std::vector<double>, std::vector<double>> extract_tuple(std::vector<my_tuple> tuple){
+
+        std::vector<double> first_element, second_element;
+
+        for (auto entry = tuple.begin(); entry != tuple.end(); entry++) {
+            first_element.push_back(std::get<0>(*entry));
+            second_element.push_back(std::get<1>(*entry));
+        }
+
+        return std::make_tuple(first_element,second_element);
+    }
+
+    void do_graphs(){
+
+        sortbyfirst(head_status);
+        sortbyfirst(xpos_status);
+        sortbyfirst(zpos_status);
+
+        std::tie (y_range, head_yaw)=extract_tuple(head_status);
+        std::tie (y_range, xpos)=extract_tuple(xpos_status);
+        std::tie (y_range, zpos)=extract_tuple(zpos_status);
+
+        plt::figure(1);
+        plt::plot(y_range, head_yaw, "r-");
+        plt::title("Head yaw wrt torso yaw");
+        plt::xlabel("y [m]"); plt::ylabel("[deg]");
+        plt::save("head_y_pos"+std::to_string(y_min)+"<y<"+std::to_string(y_max)+".png");
+
+        plt::figure(2);
+        plt::plot(y_range, xpos, "r-");
+        plt::title("x position");
+        plt::xlabel("y [m]"); plt::ylabel("x [m]");
+        plt::save("x_pos_y_pos"+std::to_string(y_min)+"<y<"+std::to_string(y_max)+".png");
+
+        plt::figure(3);
+        plt::plot(y_range, zpos, "r-");
+        plt::title("z position");
+        plt::xlabel("y [m]"); plt::ylabel("z [m]");
+        plt::save("z_pos_y_pos"+std::to_string(y_min)+"<y<"+std::to_string(y_max)+".png");
+
+        plt::figure(4);
+        plt::named_plot("actual",elapsed_time, z_ee, "b-");
+        plt::named_plot("desired",elapsed_time, z_des, "k-");
+        plt::title("z position");
+        plt::xlabel("Time [s]"); plt::ylabel("z[m]");
+        plt::legend();
+        plt::save("z_pos_time"+std::to_string(y_min)+"<y<"+std::to_string(y_max)+".png");
+
+        plt::figure(5);
+        plt::named_plot("actual",elapsed_time, y_ee, "g-");
+        plt::named_plot("desired",elapsed_time, y_des, "k-");
+        plt::title("y position");
+        plt::xlabel("Time [s]"); plt::ylabel("y[m]");
+        plt::legend();
+        plt::save("y_pos_time"+std::to_string(y_min)+"<y<"+std::to_string(y_max)+".png");
+
+        plt::figure(6);
+        plt::named_plot("actual",elapsed_time, x_ee, "r-");
+        plt::named_plot("desired",elapsed_time, x_des, "k-");
+        plt::title("x position");
+        plt::xlabel("Time [s]"); plt::ylabel("x[m]");
+        plt::legend();
+        plt::save("x_pos_time"+std::to_string(y_min)+"<y<"+std::to_string(y_max)+".png");
+
     }
 
     /********************************************************************/
@@ -234,14 +308,18 @@ class ControllerModule: public yarp::os::RFModule
             return false;
         }
 
+        setName((rf.check("name", yarp::os::Value("/study-air-hockey")).asString()).c_str());
+        robot = rf.check("robot", yarp::os::Value("icubSim")).asString();
+        which_arm = rf.check("arm", yarp::os::Value("left_arm")).asString();
+
         helperOpenDevice(0, "torso");
-        helperOpenDevice(1, "left_arm");
+        helperOpenDevice(1, which_arm);
         helperOpenDevice(2, "head");
 
         yarp::os::Property options_arm;
         options_arm.put("device", "cartesiancontrollerclient");
-        options_arm.put("remote", "/icubSim/cartesianController/left_arm");
-        options_arm.put("local", "/study-arm-hockey/cartesian/left_arm");
+        options_arm.put("remote", "/" + robot + "/cartesianController/" + which_arm);
+        options_arm.put("local", getName()+"/cartesian/" + which_arm);
         if (!helperWaitDevice(drv_arm, options_arm, "Cartesian Controller")) {
             return false;
         }
@@ -249,7 +327,7 @@ class ControllerModule: public yarp::os::RFModule
         yarp::os::Property options_gaze;
         options_gaze.put("device", "gazecontrollerclient");
         options_gaze.put("remote", "/iKinGazeCtrl");
-        options_gaze.put("local", "/study-arm-hockey/gaze");
+        options_gaze.put("local", getName()+"/gaze");
         if (!helperWaitDevice(drv_gaze, options_gaze, "Gaze Controller")) {
             drv_arm.close();
             return false;
@@ -258,11 +336,11 @@ class ControllerModule: public yarp::os::RFModule
         drv_arm.view(arm);
         drv_gaze.view(gaze);
 
-        targetPort.open("/study-arm-hockey/target");
-        headPort.open("/study-arm-hockey/head");
-        yposPort.open("/study-arm-hockey/ypos");
-        puckPort.open("/study-arm-hockey/puck");
-        hand_pix_port.open("/study-arm-hockey/hand-pixels");
+        targetPort.open(getName() + "/target");
+        headPort.open(getName() + "/head");
+        yposPort.open(getName() + "/ypos");
+        puckPort.open(getName() + "/puck");
+        hand_pix_port.open(getName() + "/hand-pixels");
         reference = std::make_shared<iCub::ctrl::minJerkTrajGen>(target, getPeriod(), T);
         first=true;
 
@@ -279,6 +357,8 @@ class ControllerModule: public yarp::os::RFModule
     /********************************************************************/
     bool close() override {
 
+        do_graphs();
+
         for (auto& i:ipos) {
             i->stop();
         }
@@ -287,12 +367,15 @@ class ControllerModule: public yarp::os::RFModule
         }
 
         drv_arm.close();
+        drv_gaze.close();
 
         targetPort.close();
         headPort.close();
         yposPort.close();
         puckPort.close();
         hand_pix_port.close();
+
+        myfile.close();
 
         yInfo()<<"Graphs done";
 
@@ -306,78 +389,85 @@ class ControllerModule: public yarp::os::RFModule
 
     /********************************************************************/
     bool updateModule() override {
-//        if (auto* b = targetPort.read(false)) {
-//            const auto p = (b->get(0).asDouble() * (y_max - y_min) + (y_max + y_min)) / 2.;
-//            target[0] = std::max(std::min(p, y_max), y_min); // to avoid going beyond the limits ymin and ymax
-//        }
 
-        double max = 0.15;
-        double min = -0.35;
-
-        if (artificial){
-            if (first) {
-                artificial_y_pos_puck = incrementOutput(1, 0);
-                first = false;
-                direction = 1;
-            } else {
-                artificial_y_pos_puck = incrementOutput(direction, artificial_y_pos_puck_prec);
+        if(test==1){
+            if (auto* b = targetPort.read(false)) {
+                const auto p = (b->get(0).asDouble() * (y_max - y_min) + (y_max + y_min)) / 2.;
+                target[0] = std::max(std::min(p, y_max), y_min); // to avoid going beyond the limits ymin and ymax
             }
-
-            int dir_mul = 1;
-            if (artificial_y_pos_puck >= max || artificial_y_pos_puck <= min) {
-                static double holdon_time = yarp::os::Time::now();
-                if (yarp::os::Time::now() - holdon_time < 2) {
-                    dir_mul = 0;
-                } else {
-                    dir_mul = 1;
-                    direction *= -1 * dir_mul;
-                    holdon_time = yarp::os::Time::now();
-                }
-            } else
-                artificial_y_pos_puck_prec = artificial_y_pos_puck;
-
             puck_tracked=true;
-
-            target[0] = artificial_y_pos_puck;
         }
-        else{
 
-            yarp::sig::Vector currentArmPos, currentArmOrient, hand_pix;
-            arm->getPose(currentArmPos, currentArmOrient);
-            hand_pix = projectToVisualSpace(currentArmPos);
+        if (test==2) {
 
-            std::cout << "u_hand:"<<hand_pix[0]<<", v_hand:"<<hand_pix[1]<<std::endl;
+            y_max = 0.15;
+            y_min = -0.3;
 
-            // BOTTLE for printing the current u and v of the arm and of the puck in the visual space
-            yarp::os::Bottle &hand_pix_bottle = hand_pix_port.prepare();
-            hand_pix_bottle.clear();
-            hand_pix_bottle.addDouble(hand_pix[0]); // x position of the hand wrt image plane
-            hand_pix_bottle.addDouble(hand_pix[1]); // y position of the hand wrt image plane
-//        // communicate if the hand is present in the image plane
-//        if (hand_pix[0]>0 && hand_pix[0]<304 && hand_pix[1]>0 && hand_pix[1]<240)
-//            hand_pix_bottle.addInt(1);
-//        else
-//            hand_pix_bottle.addInt(0);
+            if (artificial) {
+                if (first) {
+                    artificial_y_pos_puck = incrementOutput(1, 0);
+                    first = false;
+                    direction = 1;
+                } else {
+                    artificial_y_pos_puck = incrementOutput(direction, artificial_y_pos_puck_prec);
+                }
 
-            hand_pix_port.write();
+                int dir_mul = 1;
+                if (artificial_y_pos_puck >= y_max || artificial_y_pos_puck <= y_min) {
+                    static double holdon_time = yarp::os::Time::now();
+                    if (yarp::os::Time::now() - holdon_time < 2) {
+                        dir_mul = 0;
+                    } else {
+                        dir_mul = 1;
+                        direction *= -1 * dir_mul;
+                        holdon_time = yarp::os::Time::now();
+                    }
+                } else
+                    artificial_y_pos_puck_prec = artificial_y_pos_puck;
 
-            yarp::os::Bottle *b = puckPort.read();
-            u = b->get(0).asInt(); // x coordinate of the pixel within the image plane
-            v = b->get(1).asInt(); // y coordinate of the pixel within the image plane
-            puck_tracked = b->get(2).asInt(); //verify if the target is tracked or not
-            std::cout << "u_puck = "<<u<<", v_puck = "<<v<<", tracked="<<puck_tracked<<std::endl;
+                puck_tracked = true;
 
-            puck_rf = projectToRobotSpace(u,v);
+                target[0] = artificial_y_pos_puck;
+            } else {
 
-            target[0]=puck_rf[1];
+                yarp::sig::Vector currentArmPos, currentArmOrient, hand_pix;
+                arm->getPose(currentArmPos, currentArmOrient);
+                hand_pix = projectToVisualSpace(currentArmPos);
 
-            if (target[0]>min && target[0]<max)
-                puck_tracked=false;
+                std::cout << "u_hand:" << hand_pix[0] << ", v_hand:" << hand_pix[1] << std::endl;
 
-            std::cout<<"TARGET y="<<target[0]<<std::endl;
+                // BOTTLE for printing the current u and v of the arm and of the puck in the visual space
+                yarp::os::Bottle &hand_pix_bottle = hand_pix_port.prepare();
+                hand_pix_bottle.clear();
+                hand_pix_bottle.addDouble(hand_pix[0]); // x position of the hand wrt image plane
+                hand_pix_bottle.addDouble(hand_pix[1]); // y position of the hand wrt image plane
+                //        // communicate if the hand is present in the image plane
+                //        if (hand_pix[0]>0 && hand_pix[0]<304 && hand_pix[1]>0 && hand_pix[1]<240)
+                //            hand_pix_bottle.addInt(1);
+                //        else
+                //            hand_pix_bottle.addInt(0);
+
+                hand_pix_port.write();
+
+                yarp::os::Bottle *b = puckPort.read();
+                u = b->get(0).asInt(); // x coordinate of the pixel within the image plane
+                v = b->get(1).asInt(); // y coordinate of the pixel within the image plane
+                puck_tracked = b->get(2).asInt(); //verify if the target is tracked or not
+                std::cout << "u_puck = " << u << ", v_puck = " << v << ", tracked=" << puck_tracked << std::endl;
+
+                puck_rf = projectToRobotSpace(u, v);
+
+                target[0] = puck_rf[1];
+
+                if (!(target[0] > y_min && target[0] < y_max))
+                    puck_tracked = false;
+
+                std::cout << "TARGET y=" << target[0] << std::endl;
+            }
         }
 
         if (puck_tracked){
+
             reference->computeNextValues(target);
 
             std::vector<double> pos_torso(3);
@@ -405,11 +495,6 @@ class ControllerModule: public yarp::os::RFModule
             std::vector<double> actual_pos_head(6);
             iposd[2]->getRefPositions(actual_pos_head.data());
 
-            yarp::os::Bottle &head_bottle = headPort.prepare();
-            head_bottle.clear();
-            head_bottle.addDouble(actual_pos_head[2]-actual_pos_torso[0]);
-            headPort.write();
-
             static double time = yarp::os::Time::now();
             yarp::sig::Vector x_actual, o_actual;
             arm->getPose(x_actual, o_actual);
@@ -418,61 +503,19 @@ class ControllerModule: public yarp::os::RFModule
             elapsed_time.push_back(yarp::os::Time::now()-time);
             x_ee.push_back(x_actual[0]);
             x_des.push_back(-0.25);
-
             y_ee.push_back(x_actual[1]);
             y_des.push_back(target[0]);
-
             z_ee.push_back(x_actual[2]);
             z_des.push_back(-0.05);
+
             head_status.push_back(std::make_tuple(x_actual[1],actual_pos_head[2]-actual_pos_torso[0]));
+            xpos_status.push_back(std::make_tuple(x_actual[1], x_actual[0]));
+            zpos_status.push_back(std::make_tuple(x_actual[1], x_actual[2]));
 
-            std::sort(begin(head_status), end(head_status)); //sort by first element
-
-            if (x_actual[1]<min+0.01){
-
-                for (auto entry = head_status.begin(); entry != head_status.end(); entry++) {
-                    y_range.push_back(std::get<0>(*entry));
-                    head_yaw.push_back(std::get<1>(*entry));
-                }
-
-                yInfo()<<y_range;
-                yInfo()<<head_yaw;
-
-                plt::figure(1);
-                plt::plot(y_range, head_yaw, "r-");
-                plt::title("Head yaw wrt torso yaw");
-                plt::xlabel("y [m]"); plt::ylabel("[deg]");
-                plt::save("head_y.png");
-
-                plt::figure(2);
-                plt::named_plot("actual",elapsed_time, z_ee, "b-");
-                plt::named_plot("desired",elapsed_time, z_des, "k-");
-                plt::title("z position");
-                plt::xlabel("Time [s]"); plt::ylabel("z[m]");
-                plt::legend();
-                plt::save("z_pos_-0.3<y<0.12.png");
-
-                plt::figure(3);
-                plt::named_plot("actual",elapsed_time, y_ee, "g-");
-                plt::named_plot("desired",elapsed_time, y_des, "k-");
-                plt::title("y position");
-                plt::xlabel("Time [s]"); plt::ylabel("y[m]");
-                plt::legend();
-                plt::save("y_pos_-0.3<y<0.12.png");
-
-                plt::figure(4);
-                plt::named_plot("actual",elapsed_time, x_ee, "r-");
-                plt::named_plot("desired",elapsed_time, x_des, "k-");
-                plt::title("x position");
-                plt::xlabel("Time [s]"); plt::ylabel("x[m]");
-                plt::legend();
-                plt::save("x_pos_-0.3<y<0.12.png");
-
-                return 0;
-
-            }
-
-//            myfile << target[0] << "\t" << x_actual[1] << "\t" << actual_pos_head[2]-actual_pos_torso[0] << '\n';
+            yarp::os::Bottle &head_bottle = headPort.prepare();
+            head_bottle.clear();
+            head_bottle.addDouble(actual_pos_head[2]-actual_pos_torso[0]);
+            headPort.write();
 
             yarp::os::Bottle &ypos_bottle = yposPort.prepare();
             ypos_bottle.clear();
