@@ -36,6 +36,7 @@
 #include <yarp/dev/CartesianControl.h>
 #include <yarp/dev/GazeControl.h>
 #include <yarp/dev/IControlLimits.h>
+#include <yarp/dev/IEncoders.h>
 
 #include <iCub/ctrl/minJerkCtrl.h>
 
@@ -57,7 +58,7 @@ class ControllerModule: public yarp::os::RFModule
     yarp::dev::PolyDriver drv_gaze;
     yarp::dev::IGazeControl* gaze;
 
-    yarp::dev::IControlLimits* ilim;
+    yarp::dev::IEncoders *ienc;
 
     std::string table_file;
     std::vector<std::shared_ptr<tk::spline>> interp;
@@ -78,7 +79,7 @@ class ControllerModule: public yarp::os::RFModule
     bool artificial;
 
     yarp::os::BufferedPort<yarp::os::Bottle> targetPort;
-    yarp::os::BufferedPort<yarp::os::Bottle> headPort, yposPort, puckPort, hand_pix_port;
+    yarp::os::BufferedPort<yarp::os::Bottle> headPort, yposPort, puckPort, hand_pix_port, headJointsPort;
     std::shared_ptr<iCub::ctrl::minJerkTrajGen> reference;
     yarp::sig::Vector target{0.};
 
@@ -91,10 +92,12 @@ class ControllerModule: public yarp::os::RFModule
         drv[i].open(options);
         
         yarp::dev::IControlMode* imod;
+        yarp::dev::IControlLimits* ilim;
         drv[i].view(ipos[i]);
         drv[i].view(iposd[i]);
         drv[i].view(imod);
         drv[i].view(ilim);
+        drv[i].view(ienc);
         int naxes;
         ipos[i]->getAxes(&naxes);
         std::vector<int> modes(naxes, VOCAB_CM_POSITION);
@@ -104,11 +107,11 @@ class ControllerModule: public yarp::os::RFModule
         imod->setControlModes(modes.data());
         ipos[i]->setRefSpeeds(vels.data());
         ipos[i]->setRefAccelerations(accs.data());
-        if (naxes==16){
-            double pinkie_min, pinkie_max;
-            ilim -> getLimits(15, &pinkie_min, &pinkie_max);
-            fingers_posture={60., 80., 40., 35., 40., 35., 40., 35., pinkie_max};
-        }
+//        if (naxes==16){
+//            double pinkie_min, pinkie_max;
+//            ilim -> getLimits(15, &pinkie_min, &pinkie_max);
+//            fingers_posture={60., 80., 40., 35., 40., 35., 40., 35., pinkie_max};
+//        }
         switch (naxes) {
             case 3:
                 for (size_t i = 0; i < 3; i++) {
@@ -119,9 +122,9 @@ class ControllerModule: public yarp::os::RFModule
                 for (size_t i = 0; i < 7; i++) {
                     poss[i] = interp[3 + i]->operator()(0.);
                 }
-                for (size_t i = 7; i < 16; i++){
-                    poss[i] = fingers_posture[i-7]; //for grasping the paddle
-                }
+//                for (size_t i = 7; i < 16; i++){
+//                    poss[i] = fingers_posture[i-7]; //for grasping the paddle
+//                }
                 break;
             case 6:
                 for (size_t i = 0; i < 6; i++) {
@@ -183,6 +186,15 @@ class ControllerModule: public yarp::os::RFModule
 
         yError() << "Unable to open the Device Driver:" << device_name;
         return false;
+    }
+
+    std::vector<double> readFromEncoders(int i){
+        int joints;
+        ipos[i]->getAxes(&joints);
+        std::vector<double> encs(joints, 0.);
+        ienc->getEncoders(encs.data());
+
+        return encs;
     }
 
     double incrementOutput(int dir, double y_cart)
@@ -259,19 +271,19 @@ class ControllerModule: public yarp::os::RFModule
         plt::plot(y_range, head_yaw, "r-");
         plt::title("Head yaw wrt torso yaw");
         plt::xlabel("y [m]"); plt::ylabel("[deg]");
-        plt::save("head_y_pos"+std::to_string(y_min)+"<y<"+std::to_string(y_max)+".png");
+        plt::save("head_y_pos"+std::to_string(y_min)+"<y<"+std::to_string(y_max)+".svg");
 
         plt::figure(2);
         plt::plot(y_range, xpos, "r-");
         plt::title("x position");
         plt::xlabel("y [m]"); plt::ylabel("x [m]");
-        plt::save("x_pos_y_pos"+std::to_string(y_min)+"<y<"+std::to_string(y_max)+".png");
+        plt::save("x_pos_y_pos"+std::to_string(y_min)+"<y<"+std::to_string(y_max)+".svg");
 
         plt::figure(3);
         plt::plot(y_range, zpos, "r-");
         plt::title("z position");
         plt::xlabel("y [m]"); plt::ylabel("z [m]");
-        plt::save("z_pos_y_pos"+std::to_string(y_min)+"<y<"+std::to_string(y_max)+".png");
+        plt::save("z_pos_y_pos"+std::to_string(y_min)+"<y<"+std::to_string(y_max)+".svg");
 
         plt::figure(4);
         plt::named_plot("actual",elapsed_time, z_ee, "b-");
@@ -279,7 +291,7 @@ class ControllerModule: public yarp::os::RFModule
         plt::title("z position");
         plt::xlabel("Time [s]"); plt::ylabel("z[m]");
         plt::legend();
-        plt::save("z_pos_time"+std::to_string(y_min)+"<y<"+std::to_string(y_max)+".png");
+        plt::save("z_pos_time"+std::to_string(y_min)+"<y<"+std::to_string(y_max)+".svg");
 
         plt::figure(5);
         plt::named_plot("actual",elapsed_time, y_ee, "g-");
@@ -287,7 +299,7 @@ class ControllerModule: public yarp::os::RFModule
         plt::title("y position");
         plt::xlabel("Time [s]"); plt::ylabel("y[m]");
         plt::legend();
-        plt::save("y_pos_time"+std::to_string(y_min)+"<y<"+std::to_string(y_max)+".png");
+        plt::save("y_pos_time"+std::to_string(y_min)+"<y<"+std::to_string(y_max)+".svg");
 
         plt::figure(6);
         plt::named_plot("actual",elapsed_time, x_ee, "r-");
@@ -295,7 +307,7 @@ class ControllerModule: public yarp::os::RFModule
         plt::title("x position");
         plt::xlabel("Time [s]"); plt::ylabel("x[m]");
         plt::legend();
-        plt::save("x_pos_time"+std::to_string(y_min)+"<y<"+std::to_string(y_max)+".png");
+        plt::save("x_pos_time"+std::to_string(y_min)+"<y<"+std::to_string(y_max)+".svg");
 
     }
 
@@ -343,6 +355,8 @@ class ControllerModule: public yarp::os::RFModule
         yposPort.open(getName() + "/ypos");
         puckPort.open(getName() + "/puck");
         hand_pix_port.open(getName() + "/hand-pixels");
+        headJointsPort.open(getName()+"/head-joints");
+
         reference = std::make_shared<iCub::ctrl::minJerkTrajGen>(target, getPeriod(), T);
         first=true;
 
@@ -376,6 +390,7 @@ class ControllerModule: public yarp::os::RFModule
         yposPort.close();
         puckPort.close();
         hand_pix_port.close();
+        headJointsPort.close();
 
         myfile.close();
 
@@ -386,11 +401,13 @@ class ControllerModule: public yarp::os::RFModule
 
     /********************************************************************/
     double getPeriod() override {
-        return .01;
+        return 0.01;
     }
 
     /********************************************************************/
     bool updateModule() override {
+
+        static double prevTime = yarp::os::Time::now();
 
         if(test==1){
             if (auto* b = targetPort.read(false)) {
@@ -491,6 +508,15 @@ class ControllerModule: public yarp::os::RFModule
             }
             iposd[2]->setPositions(pos_head.data());
 
+            std::vector<double> encs_head = readFromEncoders(2);
+            yarp::os::Bottle &headJoints_bottle = headJointsPort.prepare();
+            headJoints_bottle.clear();
+            for (auto i=0; i<6; i++){
+                headJoints_bottle.addDouble(encs_head[i]);
+                headJoints_bottle.addDouble(pos_head[i]);
+            }
+            headJointsPort.write();
+
             std::vector<double> actual_pos_torso(3);
             iposd[0]->getRefPositions(actual_pos_torso.data());
 
@@ -526,6 +552,9 @@ class ControllerModule: public yarp::os::RFModule
             yposPort.write();
         }
 
+        double currTime = yarp::os::Time::now();
+//        yInfo() << currTime - prevTime;
+        prevTime = currTime;
         return true;
     }
 };
