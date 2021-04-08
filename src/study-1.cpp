@@ -33,14 +33,21 @@
 #include <yarp/dev/PolyDriver.h>
 #include <yarp/dev/CartesianControl.h>
 #include <yarp/dev/GazeControl.h>
+#include <iostream>
 
+
+class Matrix;
+
+class Matrix;
+
+class Vector3;
 
 /************************************************************************/
 class ControllerModule: public yarp::os::RFModule
 {
     yarp::dev::PolyDriver drv_arm;
     yarp::dev::ICartesianControl* arm;
-
+    yarp::sig::Matrix R;
     yarp::dev::PolyDriver drv_gaze;
     yarp::dev::IGazeControl* gaze;
 
@@ -109,7 +116,7 @@ class ControllerModule: public yarp::os::RFModule
     bool configure(yarp::os::ResourceFinder& rf) override {
         table_file = rf.getHomeContextPath() + "/" +
                      rf.check("table-file", yarp::os::Value("table.tsv")).asString();
-        setName((rf.check("name", yarp::os::Value("/study-air-hockey")).asString()).c_str());
+        setName((rf.check("name", yarp::os::Value("/study-air-hockey-1")).asString()).c_str());
         robot = rf.check("robot", yarp::os::Value("icubSim")).asString();
         which_arm = rf.check("arm", yarp::os::Value("left_arm")).asString();
         const auto torso_joints = rf.check("torso-joints", yarp::os::Value(1)).asInt();
@@ -154,11 +161,14 @@ class ControllerModule: public yarp::os::RFModule
                 arm->setLimits(1, 0., 0.);
         }
 
-        yarp::sig::Matrix R = yarp::math::zeros(3, 3);
+        R = yarp::math::zeros(3, 3);
+
         R(0, 0) = -1.; R(2, 1) = -1.; R(1, 2) = -1.;
         o0 = yarp::math::dcm2axis(R);
+
         arm->goToPoseSync(x0, o0);
         arm->waitMotionDone(wait_ping, wait_tmo);
+        arm ->setPosePriority("position");
 
         drv_gaze.view(gaze);
         gaze->storeContext(&startup_context_id_gaze);
@@ -172,6 +182,7 @@ class ControllerModule: public yarp::os::RFModule
 
         y=-y_min;
 //        y = -y_max;
+
         return true;
     }
 
@@ -211,17 +222,40 @@ class ControllerModule: public yarp::os::RFModule
         drv_gaze.close();
 
         writeTable();
+
         return true;
     }
 
     /********************************************************************/
     double getPeriod() override {
-        return 0.;
+        return 0.01;
     }
 
     /********************************************************************/
     bool updateModule() override {
-        arm->goToPoseSync(x0 + yarp::sig::Vector{0., y, 0.}, o0);
+
+        yarp::sig::Vector Xwrist, Owrist;
+        arm->getPose(8, Xwrist, Owrist); // get position and orientation of the last joint (wrist yaw)
+
+        yarp::sig::Vector Xelbow, Oelbow;
+        arm->getPose(6, Xelbow, Oelbow); // get position and orientation of the last joint (wrist yaw)
+
+        double theta = -atan2(Xelbow[1]-Xwrist[1], Xelbow[0]-Xwrist[0]);
+
+        yarp::sig::Matrix Rtheta_y;
+        Rtheta_y = yarp::math::zeros(3, 3); // rotation matrix around y
+
+        Rtheta_y(0,0)=cos(theta);
+        Rtheta_y(0,1)=0;
+        Rtheta_y(0,2)=sin(theta);
+        Rtheta_y(1,0)=0;
+        Rtheta_y(1,1)=1;
+        Rtheta_y(1,2)=0;
+        Rtheta_y(2,0)=-sin(theta);
+        Rtheta_y(2,1)=0;
+        Rtheta_y(2,2)=cos(theta);
+
+        arm->goToPoseSync(x0 + yarp::sig::Vector{0., y, 0.} , yarp::math::dcm2axis(R*Rtheta_y));
         arm->waitMotionDone(wait_ping, wait_tmo);
 
         gaze->lookAtFixationPoint(fixation);
@@ -229,6 +263,9 @@ class ControllerModule: public yarp::os::RFModule
 
         yarp::sig::Vector xdhat, odhat, q_arm;
         arm->getDesired(xdhat, odhat, q_arm);
+
+        yarp::sig::Vector xarm, oarm;
+        arm->getPose(xarm, oarm);
         
         yarp::sig::Vector q_gaze;
         gaze->getJointsDesired(q_gaze);
