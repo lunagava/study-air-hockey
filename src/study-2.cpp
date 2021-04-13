@@ -42,6 +42,7 @@
 
 #include "../../spline/src/spline.h"
 #include "matplotlib-cpp/matplotlibcpp.h"
+#include "linearTraj.h"
 
 namespace plt = matplotlibcpp;
 
@@ -77,10 +78,15 @@ class ControllerModule: public yarp::os::RFModule
     std::string which_arm, robot;
     int test;
     bool artificial;
+    double target_prec;
+    double velTraj;
 
     yarp::os::BufferedPort<yarp::os::Bottle> targetPort;
     yarp::os::BufferedPort<yarp::os::Bottle> headPort, yposPort, puckPort, hand_pix_port, headJointsPort;
+
     std::shared_ptr<iCub::ctrl::minJerkTrajGen> reference;
+    linearTraj genLinTraj;
+
     yarp::sig::Vector target{0.};
 
     /********************************************************************/
@@ -317,6 +323,7 @@ class ControllerModule: public yarp::os::RFModule
         const auto T = std::abs(rf.check("T", yarp::os::Value(1.)).asDouble());
         test = rf.check("test", yarp::os::Value(1)).asInt();
         artificial = rf.check("artificial", yarp::os::Value(true)).asBool();
+        velTraj= rf.check("vel", yarp::os::Value(0.3)).asDouble();
 
         if (!readTable()) {
             return false;
@@ -357,7 +364,11 @@ class ControllerModule: public yarp::os::RFModule
         hand_pix_port.open(getName() + "/hand-pixels");
         headJointsPort.open(getName()+"/head-joints");
 
+        // 1) initial value of the trajectory.
+        // 2) sample time in seconds.
+        // 3) trajectory reference time (90% of steady-state value in t=_T, transient extinguished for t>=1.5*_T).
         reference = std::make_shared<iCub::ctrl::minJerkTrajGen>(target, getPeriod(), T);
+
         first=true;
 
         myfile.open("head.txt");
@@ -366,6 +377,9 @@ class ControllerModule: public yarp::os::RFModule
             yError()<<"Could not open file for printing head yaw wrt torso yaw";
             return 0;
         }
+
+        target_prec=0;
+        genLinTraj.init(velTraj, getPeriod());
 
         return true;
     }
@@ -420,7 +434,7 @@ class ControllerModule: public yarp::os::RFModule
         if (test==2) {
 
             y_max = 0.12;
-            y_min = -0.15;
+            y_min = -0.12;
 
             if (artificial) {
                 if (first) {
@@ -478,8 +492,10 @@ class ControllerModule: public yarp::os::RFModule
 
                 target[0] = puck_rf[1];
 
-                if (!(target[0] > y_min && target[0] < y_max))
-                    puck_tracked = false;
+                if (target[0]>y_max)
+                    target[0]=y_max;
+                if (target[0]<y_min)
+                    target[0]=y_min;
 
                 std::cout << "TARGET y=" << target[0] << std::endl;
             }
@@ -487,24 +503,44 @@ class ControllerModule: public yarp::os::RFModule
 
         if (puck_tracked){
 
-            reference->computeNextValues(target);
+//            double t_max, t_min;
+//            t_max = 1.5; t_min = 0.5;
+//
+//            double T_traj = ((t_max-t_min)/(y_max-y_min))*abs(target[0]-target_prec);
+//
+//            if (T_traj<t_min)
+//                T_traj=t_min;
+//
+//            yInfo()<<target[0];
+//            yInfo()<<target_prec;
+//            yInfo()<<T_traj;
+//            std::cout<<std::endl;
+//
+//            if (T_traj!=0)
+//                reference->setT(T_traj);
+//            target_prec=target[0];
+
+//            reference->computeNextValues(target);
+            double pos_minjerk = genLinTraj.getPos();
+
+            genLinTraj.computeCoeff(target[0]);
 
             std::vector<double> pos_torso(3);
             for (size_t i = 0; i < pos_torso.size(); i++) {
-                pos_torso[pos_torso.size() - 1 - i] = interp[i]->operator()(reference->getPos()[0]);
+                pos_torso[pos_torso.size() - 1 - i] = interp[i]->operator()(genLinTraj.getPos());
             }
             iposd[0]->setPositions(pos_torso.data());
 
             std::vector<double> pos_arm(7);
             for (size_t i = 0; i < pos_arm.size(); i++) {
-                pos_arm[i] = interp[pos_torso.size() + i]->operator()(reference->getPos()[0]);
+                pos_arm[i] = interp[pos_torso.size() + i]->operator()(genLinTraj.getPos());
             }
             iposd[1]->setPositions(pos_arm.size(), std::vector<int>({0, 1, 2, 3, 4, 5, 6, 7}).data(),
                                    pos_arm.data());
 
             std::vector<double> pos_head(6);
             for (size_t i = 0; i < pos_head.size(); i++) {
-                pos_head[i] = interp[pos_torso.size() + pos_arm.size() + i]->operator()(reference->getPos()[0]);
+                pos_head[i] = interp[pos_torso.size() + pos_arm.size() + i]->operator()(genLinTraj.getPos());
             }
             iposd[2]->setPositions(pos_head.data());
 
@@ -547,13 +583,14 @@ class ControllerModule: public yarp::os::RFModule
 
             yarp::os::Bottle &ypos_bottle = yposPort.prepare();
             ypos_bottle.clear();
-            ypos_bottle.addDouble(x_actual[1]);
+            ypos_bottle.addDouble(pos_minjerk);
             ypos_bottle.addDouble(target[0]);
             yposPort.write();
         }
 
         double currTime = yarp::os::Time::now();
-//        yInfo() << currTime - prevTime;
+        yInfo() << currTime - prevTime;
+        std::cout<<std::endl;
         prevTime = currTime;
         return true;
     }
