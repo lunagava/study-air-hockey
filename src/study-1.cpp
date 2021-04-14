@@ -180,8 +180,10 @@ class ControllerModule: public yarp::os::RFModule
         gaze->lookAtFixationPoint(fixation);
         gaze->waitMotionDone(wait_ping, wait_tmo);
 
-        y=-y_min;
-//        y = -y_max;
+        if (which_arm=="left_arm")
+            y=-y_min;
+        else
+            y=y_max;
 
         return true;
     }
@@ -272,8 +274,15 @@ class ControllerModule: public yarp::os::RFModule
 
         table.push_back(std::make_tuple(y, q_arm, q_gaze));
 
-        y += y_delta;
-        return (y <= y_max + y_delta/2.);
+        if (which_arm=="left_arm")
+            y += y_delta;
+        else
+            y -= y_delta;
+
+        if (which_arm=="left_arm")
+            return (y <= y_max + y_delta/2.);
+        else
+            return (y >= -y_min - y_delta/2.);
     }
 };
 

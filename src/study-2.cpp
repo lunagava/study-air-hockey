@@ -433,7 +433,7 @@ class ControllerModule: public yarp::os::RFModule
 
         if (test==2) {
 
-            y_max = 0.12;
+            y_max = 0.15;
             y_min = -0.12;
 
             if (artificial) {
@@ -521,6 +521,8 @@ class ControllerModule: public yarp::os::RFModule
 //            target_prec=target[0];
 
 //            reference->computeNextValues(target);
+//            double pos_minjerk = reference->getPos()[0];
+
             double pos_minjerk = genLinTraj.getPos();
 
             genLinTraj.computeCoeff(target[0]);
