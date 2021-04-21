@@ -44,6 +44,9 @@
 #include "matplotlib-cpp/matplotlibcpp.h"
 #include "linearTraj.h"
 
+#include <yarp/sig/Matrix.h>
+#include <yarp/math/Math.h>
+
 namespace plt = matplotlibcpp;
 
 /************************************************************************/
@@ -64,6 +67,7 @@ class ControllerModule: public yarp::os::RFModule
     std::string table_file;
     std::vector<std::shared_ptr<tk::spline>> interp;
     double y_min, y_max;
+    int whichImagePlane;
 
     bool first;
     double artificial_y_pos_puck, artificial_y_pos_puck_prec;
@@ -83,6 +87,7 @@ class ControllerModule: public yarp::os::RFModule
 
     yarp::os::BufferedPort<yarp::os::Bottle> targetPort;
     yarp::os::BufferedPort<yarp::os::Bottle> headPort, yposPort, puckPort, hand_pix_port, headJointsPort;
+    yarp::os::RpcServer handlerPort;
 
     std::shared_ptr<iCub::ctrl::minJerkTrajGen> reference;
     linearTraj genLinTraj;
@@ -214,7 +219,98 @@ class ControllerModule: public yarp::os::RFModule
         yarp::sig::Vector imagePos;
         imagePos.resize(2);
 
-        gaze->get2DPixel(0, robPos, imagePos); // project the hand Cartesian position into the image plane
+        gaze->get2DPixel(whichImagePlane, robPos, imagePos); // project the hand Cartesian position into the image plane
+
+        std::cout<<"get2DPixel results: "<<imagePos[0]<<" "<<imagePos[1]<<std::endl;
+
+        // instrinsic projection matrix
+        yarp::sig::Matrix K;
+        K = yarp::math::zeros(3,4);
+
+        if (robot=="icubSim"){
+            if (whichImagePlane==1){ //right
+                K(0,0)=177.611; K(0,2)=150.974;  // fx and cx
+                K(1,1)=177.935; K(1,2)=113.802;  // fy and cy
+                K(2,2)=1.00;
+            }
+            else{ //left
+
+                K(0,0)=192.578; K(0,2)=151.638;  // fx and cx
+                K(1,1)=192.318; K(1,2)=113.121;  // fy and cy
+                K(2,2)=1.00;
+            }
+        }
+        else{
+            if (whichImagePlane==1){ //right
+
+                // outputCalib.ini
+                K(0,0)=177.153; K(0,2)=155.757;  // fx and cx
+                K(1,1)=113.539; K(1,2)=177.702;  // fy and cy
+                K(2,2)=1.00;
+
+                // icubEyes_ATIS.ini
+//                K(0,0)=189.317; K(0,2)=150.419;  // fx and cx
+//                K(1,1)=190.55; K(1,2)=114.671;  // fy and cy
+//                K(2,2)=1.00;
+            }
+            else{ //left
+
+                // outputCalib.ini
+                K(0,0)=193.549; K(0,2)=149.394;  // fx and cx
+                K(1,1)=193.463; K(1,2)=112.154;  // fy and cy
+                K(2,2)=1.00;
+
+                // icubEyes_ATIS.ini
+//                K(0,0)=235.673; K(0,2)=150.324;  // fx and cx
+//                K(1,1)=238.258; K(1,2)=113.615;  // fy and cy
+//                K(2,2)=1.00;
+            }
+        }
+
+
+        // roto-translational matrix from camera to robot frame
+        yarp::sig::Vector xcam(3);
+        yarp::sig::Vector ocam(4);
+
+        if (whichImagePlane==1)
+            gaze->getRightEyePose(xcam,ocam);
+        else
+            gaze->getLeftEyePose(xcam,ocam);
+
+//        std::cout<<xcam[0]<<" "<<xcam[1]<<" "<<xcam[2]<<std::endl;
+//        std::cout<<ocam[0]<<" "<<ocam[1]<<" "<<ocam[2]<<" "<<ocam[3]<<std::endl;
+
+        yarp::sig::Matrix Tcam = yarp::math::axis2dcm(ocam);
+
+        for (int i=0; i<3; i++){
+            Tcam(i,3)=xcam[i];
+        }
+
+        std::cout<<"CAMERA Roto-Trans matrix"<<std::endl;
+        for (int i=0; i<4; i++){
+            for (int j=0; j<4; j++){
+                std::cout<<Tcam(i,j)<<" ";
+            }
+            std::cout<<std::endl;
+        }
+
+        std::cout<<"End-Effector position wrt root: "<<robPos[0]<<" "<<robPos[1]<<" "<<robPos[2]<<std::endl;
+
+        robPos.resize(4);
+        robPos[3]=1; // homogeneous coordinates
+
+        yarp::sig::Vector xe =  yarp::math::SE3inv(Tcam)*robPos;
+
+//        std::cout<<"xe wrt camera: "<<xe[0]<<" "<<xe[1]<<" "<<xe[2]<<std::endl;
+
+        yarp::sig::Vector imagePix = K*xe;
+
+        double u_pix = imagePix[0]/imagePix[2];
+        double v_pix = imagePix[1]/imagePix[2];
+
+        std::cout<<"TRANSFORMATIONS results: "<<u_pix<<" "<<v_pix<<std::endl;
+
+        imagePos[0]=u_pix; imagePos[1]=v_pix;
 
         return imagePos;
     }
@@ -225,7 +321,6 @@ class ControllerModule: public yarp::os::RFModule
         puckPix_vec.resize(2); puckPos_rob.resize(3);
         puckPix_vec[0] = u_puck;
         puckPix_vec[1] = v_puck;
-        int whichImagePlane = 0; // image plane: 0 for left and 1 for right
 
         yarp::sig::Vector plane{0., 0., 1.0, 0.09};
 
@@ -233,8 +328,8 @@ class ControllerModule: public yarp::os::RFModule
         gaze->get3DPointOnPlane(whichImagePlane, puckPix_vec, plane, puckPos_rob);
 
         // defensive movements along y direction (x and z are set equal to the initial Cartesian position)
-        puckPos_rob[0] = -0.25;
-        puckPos_rob[2] = -0.05;
+        puckPos_rob[0] = -0.3;
+        puckPos_rob[2] = 0;
 
         return puckPos_rob;
     }
@@ -324,6 +419,7 @@ class ControllerModule: public yarp::os::RFModule
         test = rf.check("test", yarp::os::Value(1)).asInt();
         artificial = rf.check("artificial", yarp::os::Value(true)).asBool();
         velTraj= rf.check("vel", yarp::os::Value(0.3)).asDouble();
+        whichImagePlane = rf.check("camera", yarp::os::Value(0)).asInt(); // 0 for left and 1 for right
 
         if (!readTable()) {
             return false;
@@ -381,6 +477,53 @@ class ControllerModule: public yarp::os::RFModule
         target_prec=0;
         genLinTraj.init(velTraj, getPeriod());
 
+        // rpc = remote procedure call
+        // open rpc port
+        if(!handlerPort.open(getName() + "/" + which_arm + "/rpc:i")) {
+            yError() << "Could not open rpc port";
+            return false;
+        }
+
+        // attach the callback respond()
+        attach(handlerPort);
+
+        return true;
+    }
+
+    bool respond(const yarp::os::Bottle &command, yarp::os::Bottle &reply)
+    {
+
+        std::string cmd=command.get(0).asString();
+        yInfo() << cmd;
+        if (cmd=="help")
+        {
+            reply.addVocab(yarp::os::Vocab::encode("many"));
+            reply.addString("Available commands:");
+            reply.addString("- move (move to the desired pose)");
+            reply.addString("- quit");
+        }
+        else if (cmd=="move"){
+            yarp::sig::Vector desPos, desOrient, xc, oc;
+
+            desPos.resize(3); desOrient.resize(4);
+
+            desPos[0]=command.get(1).asDouble();
+            desPos[1]=command.get(2).asDouble();
+            desPos[2]=command.get(3).asDouble();
+            double t=command.get(4).asDouble();
+
+            arm -> getPose(xc, oc);
+            desOrient = oc;
+
+            arm->goToPose(desPos, desOrient, t);
+
+            reply.addString("ack");
+            reply.addString("iCub reached the desired pose!");
+        }
+        else
+            // the father class already handles the "quit" command
+            return RFModule::respond(command,reply);
+
         return true;
     }
 
@@ -433,7 +576,7 @@ class ControllerModule: public yarp::os::RFModule
 
         if (test==2) {
 
-            y_max = 0.15;
+            y_max = 0.27;
             y_min = -0.12;
 
             if (artificial) {
@@ -467,13 +610,14 @@ class ControllerModule: public yarp::os::RFModule
                 arm->getPose(currentArmPos, currentArmOrient);
                 hand_pix = projectToVisualSpace(currentArmPos);
 
-                std::cout << "u_hand:" << hand_pix[0] << ", v_hand:" << hand_pix[1] << std::endl;
+//                std::cout << "u_hand:" << hand_pix[0] << ", v_hand:" << hand_pix[1] << std::endl;
 
                 // BOTTLE for printing the current u and v of the arm and of the puck in the visual space
                 yarp::os::Bottle &hand_pix_bottle = hand_pix_port.prepare();
                 hand_pix_bottle.clear();
                 hand_pix_bottle.addDouble(hand_pix[0]); // x position of the hand wrt image plane
                 hand_pix_bottle.addDouble(hand_pix[1]); // y position of the hand wrt image plane
+                hand_pix_bottle.addDouble(currentArmPos[1]);
                 //        // communicate if the hand is present in the image plane
                 //        if (hand_pix[0]>0 && hand_pix[0]<304 && hand_pix[1]>0 && hand_pix[1]<240)
                 //            hand_pix_bottle.addInt(1);
@@ -486,7 +630,7 @@ class ControllerModule: public yarp::os::RFModule
                 u = b->get(0).asInt(); // x coordinate of the pixel within the image plane
                 v = b->get(1).asInt(); // y coordinate of the pixel within the image plane
                 puck_tracked = b->get(2).asInt(); //verify if the target is tracked or not
-                std::cout << "u_puck = " << u << ", v_puck = " << v << ", tracked=" << puck_tracked << std::endl;
+//                std::cout << "u_puck = " << u << ", v_puck = " << v << ", tracked=" << puck_tracked << std::endl;
 
                 puck_rf = projectToRobotSpace(u, v);
 
@@ -497,7 +641,7 @@ class ControllerModule: public yarp::os::RFModule
                 if (target[0]<y_min)
                     target[0]=y_min;
 
-                std::cout << "TARGET y=" << target[0] << std::endl;
+//                std::cout << "TARGET y=" << target[0] << std::endl;
             }
         }
 
@@ -531,14 +675,14 @@ class ControllerModule: public yarp::os::RFModule
             for (size_t i = 0; i < pos_torso.size(); i++) {
                 pos_torso[pos_torso.size() - 1 - i] = interp[i]->operator()(genLinTraj.getPos());
             }
-            iposd[0]->setPositions(pos_torso.data());
+//            iposd[0]->setPositions(pos_torso.data());
 
             std::vector<double> pos_arm(7);
             for (size_t i = 0; i < pos_arm.size(); i++) {
                 pos_arm[i] = interp[pos_torso.size() + i]->operator()(genLinTraj.getPos());
             }
-            iposd[1]->setPositions(pos_arm.size(), std::vector<int>({0, 1, 2, 3, 4, 5, 6, 7}).data(),
-                                   pos_arm.data());
+//            iposd[1]->setPositions(pos_arm.size(), std::vector<int>({0, 1, 2, 3, 4, 5, 6, 7}).data(),
+//                                   pos_arm.data());
 
             std::vector<double> pos_head(6);
             for (size_t i = 0; i < pos_head.size(); i++) {
@@ -591,7 +735,7 @@ class ControllerModule: public yarp::os::RFModule
         }
 
         double currTime = yarp::os::Time::now();
-        yInfo() << currTime - prevTime;
+//        yInfo() << currTime - prevTime;
         std::cout<<std::endl;
         prevTime = currTime;
         return true;
