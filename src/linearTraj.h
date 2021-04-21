@@ -25,16 +25,11 @@ public:
 
     virtual void computeCoeff(double yd){
 
-        std::cout<<"before: "<<pos<<std::endl;
-        std::cout<<"target: "<<yd<<std::endl;
-
         if(abs(pos-yd) > epsilon){
             if (pos<yd)
                 pos = pos + vel*Ts;
             else
                 pos = pos - vel*Ts;
-
-            std::cout<<"after: "<<pos<<std::endl<<std::endl;
         }
 
     }
