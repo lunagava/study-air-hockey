@@ -116,7 +116,7 @@ class ControllerModule: public yarp::os::RFModule
     bool configure(yarp::os::ResourceFinder& rf) override {
         table_file = rf.getHomeContextPath() + "/" +
                      rf.check("table-file", yarp::os::Value("table.tsv")).asString();
-        setName((rf.check("name", yarp::os::Value("/study-air-hockey-1")).asString()).c_str());
+        setName((rf.check("name", yarp::os::Value("/study-air-hockey")).asString()).c_str());
         robot = rf.check("robot", yarp::os::Value("icubSim")).asString();
         which_arm = rf.check("arm", yarp::os::Value("left_arm")).asString();
         const auto torso_joints = rf.check("torso-joints", yarp::os::Value(1)).asInt();
@@ -176,6 +176,7 @@ class ControllerModule: public yarp::os::RFModule
         gaze->setNeckTrajTime(.6);
         gaze->setEyesTrajTime(.3);
         gaze->blockNeckRoll(0.);
+        gaze->blockEyes(4.948); // vergence used during calibration
 
         gaze->lookAtFixationPoint(fixation);
         gaze->waitMotionDone(wait_ping, wait_tmo);
@@ -259,6 +260,8 @@ class ControllerModule: public yarp::os::RFModule
 
         arm->goToPoseSync(x0 + yarp::sig::Vector{0., y, 0.} , yarp::math::dcm2axis(R*Rtheta_y));
         arm->waitMotionDone(wait_ping, wait_tmo);
+
+        std::cout<<y<<std::endl;
 
         gaze->lookAtFixationPoint(fixation);
         gaze->waitMotionDone(wait_ping, wait_tmo);
