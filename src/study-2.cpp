@@ -215,102 +215,13 @@ class ControllerModule: public yarp::os::RFModule
         return y_cart;
     }
 
-    yarp::sig::Vector projectToVisualSpace(yarp::sig::Vector robPos){
+    yarp::sig::Vector projectToVisualSpace(const yarp::sig::Vector robPos){
         yarp::sig::Vector imagePos;
         imagePos.resize(2);
 
         gaze->get2DPixel(whichImagePlane, robPos, imagePos); // project the hand Cartesian position into the image plane
 
         std::cout<<"get2DPixel results: "<<imagePos[0]<<" "<<imagePos[1]<<std::endl;
-
-        // instrinsic projection matrix
-        yarp::sig::Matrix K;
-        K = yarp::math::zeros(3,4);
-
-        if (robot=="icubSim"){
-            if (whichImagePlane==1){ //right
-                K(0,0)=177.611; K(0,2)=150.974;  // fx and cx
-                K(1,1)=177.935; K(1,2)=113.802;  // fy and cy
-                K(2,2)=1.00;
-            }
-            else{ //left
-
-                K(0,0)=192.578; K(0,2)=151.638;  // fx and cx
-                K(1,1)=192.318; K(1,2)=113.121;  // fy and cy
-                K(2,2)=1.00;
-            }
-        }
-        else{
-            if (whichImagePlane==1){ //right
-
-                // outputCalib.ini
-                K(0,0)=177.153; K(0,2)=155.757;  // fx and cx
-                K(1,1)=113.539; K(1,2)=177.702;  // fy and cy
-                K(2,2)=1.00;
-
-                // icubEyes_ATIS.ini
-//                K(0,0)=189.317; K(0,2)=150.419;  // fx and cx
-//                K(1,1)=190.55; K(1,2)=114.671;  // fy and cy
-//                K(2,2)=1.00;
-            }
-            else{ //left
-
-                // outputCalib.ini
-                K(0,0)=193.549; K(0,2)=149.394;  // fx and cx
-                K(1,1)=193.463; K(1,2)=112.154;  // fy and cy
-                K(2,2)=1.00;
-
-                // icubEyes_ATIS.ini
-//                K(0,0)=235.673; K(0,2)=150.324;  // fx and cx
-//                K(1,1)=238.258; K(1,2)=113.615;  // fy and cy
-//                K(2,2)=1.00;
-            }
-        }
-
-
-        // roto-translational matrix from camera to robot frame
-        yarp::sig::Vector xcam(3);
-        yarp::sig::Vector ocam(4);
-
-        if (whichImagePlane==1)
-            gaze->getRightEyePose(xcam,ocam);
-        else
-            gaze->getLeftEyePose(xcam,ocam);
-
-//        std::cout<<xcam[0]<<" "<<xcam[1]<<" "<<xcam[2]<<std::endl;
-//        std::cout<<ocam[0]<<" "<<ocam[1]<<" "<<ocam[2]<<" "<<ocam[3]<<std::endl;
-
-        yarp::sig::Matrix Tcam = yarp::math::axis2dcm(ocam);
-
-        for (int i=0; i<3; i++){
-            Tcam(i,3)=xcam[i];
-        }
-
-        std::cout<<"CAMERA Roto-Trans matrix"<<std::endl;
-        for (int i=0; i<4; i++){
-            for (int j=0; j<4; j++){
-                std::cout<<Tcam(i,j)<<" ";
-            }
-            std::cout<<std::endl;
-        }
-
-        std::cout<<"End-Effector position wrt root: "<<robPos[0]<<" "<<robPos[1]<<" "<<robPos[2]<<std::endl;
-
-        robPos.resize(4);
-        robPos[3]=1; // homogeneous coordinates
-
-        yarp::sig::Vector xe =  yarp::math::SE3inv(Tcam)*robPos;
-
-//        std::cout<<"xe wrt camera: "<<xe[0]<<" "<<xe[1]<<" "<<xe[2]<<std::endl;
-
-        yarp::sig::Vector imagePix = K*xe;
-
-        double u_pix = imagePix[0]/imagePix[2];
-        double v_pix = imagePix[1]/imagePix[2];
-
-        std::cout<<"TRANSFORMATIONS results: "<<u_pix<<" "<<v_pix<<std::endl;
-
-        imagePos[0]=u_pix; imagePos[1]=v_pix;
 
         return imagePos;
     }
@@ -675,14 +586,14 @@ class ControllerModule: public yarp::os::RFModule
             for (size_t i = 0; i < pos_torso.size(); i++) {
                 pos_torso[pos_torso.size() - 1 - i] = interp[i]->operator()(genLinTraj.getPos());
             }
-//            iposd[0]->setPositions(pos_torso.data());
+            iposd[0]->setPositions(pos_torso.data());
 
             std::vector<double> pos_arm(7);
             for (size_t i = 0; i < pos_arm.size(); i++) {
                 pos_arm[i] = interp[pos_torso.size() + i]->operator()(genLinTraj.getPos());
             }
-//            iposd[1]->setPositions(pos_arm.size(), std::vector<int>({0, 1, 2, 3, 4, 5, 6, 7}).data(),
-//                                   pos_arm.data());
+            iposd[1]->setPositions(pos_arm.size(), std::vector<int>({0, 1, 2, 3, 4, 5, 6, 7}).data(),
+                                   pos_arm.data());
 
             std::vector<double> pos_head(6);
             for (size_t i = 0; i < pos_head.size(); i++) {
