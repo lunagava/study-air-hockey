@@ -19,6 +19,16 @@
 #include <vector>
 #include <fstream>
 
+#include <opencv2/opencv.hpp>
+#include <opencv2/core.hpp>
+#include <opencv2/imgproc.hpp>
+#include <opencv2/videoio/videoio_c.h>
+#include <opencv2/calib3d.hpp>
+#include <opencv2/calib3d/calib3d_c.h>
+#include <opencv2/core/types.hpp>
+
+using namespace cv;
+
 #include <yarp/os/Network.h>
 #include <yarp/os/LogStream.h>
 #include <yarp/os/Value.h>
@@ -40,12 +50,15 @@
 #include <yarp/dev/GazeControl.h>
 #include <iostream>
 
+#include <event-driven/all.h>
+
+using namespace ev;
 
 class Matrix;
 class Vector3;
 
 /************************************************************************/
-class ControllerModule: public yarp::os::RFModule
+class ControllerModule: public yarp::os::RFModule, public yarp::os::Thread
 {
     yarp::dev::PolyDriver drv;
     yarp::dev::IPositionControl* ipos;
@@ -78,6 +91,21 @@ class ControllerModule: public yarp::os::RFModule
     std::vector<Entry> table;
 
     yarp::os::BufferedPort<yarp::os::Bottle> handPort;
+    BufferedPort<yarp::sig::ImageOf<yarp::sig::PixelBgr> > image_out;
+
+    yarp::sig::ImageOf<yarp::sig::PixelBgr> trackMap;
+    cv::Mat trackImg;
+
+    vReadPort<vector<AE> > input_port;
+
+    deque<AE> out_queue;
+
+    Stamp ystamp;
+    bool hand_segmentation;
+    double sum_x, sum_y;
+    int n_events;
+    int roi_hand_width, roi_hand_height;
+    yarp::sig::Vector roi_hand;
 
     /********************************************************************/
     void helperOpenDevice(const std::string& device_name) {
@@ -175,6 +203,8 @@ class ControllerModule: public yarp::os::RFModule
         y_min = std::abs(rf.check("y-min", yarp::os::Value(.15)).asDouble());
         y_max = std::abs(rf.check("y-max", yarp::os::Value(.15)).asDouble());
         y_delta = std::abs(rf.check("y-delta", yarp::os::Value(.005)).asDouble());
+        roi_hand_width = rf.check("roi_hand_width", yarp::os::Value(100)).asInt();
+        roi_hand_height = rf.check("roi_hand_height", yarp::os::Value(80)).asInt();
         helperFillVector(rf, "x0", x0);
         helperFillVector(rf, "fixation", fixation);
 
@@ -243,7 +273,47 @@ class ControllerModule: public yarp::os::RFModule
 
         handPort.open(getName() + "/hand-perimeter");
 
-        return true;
+        if (!input_port.open(getName() + "/AE:i"))
+            return false;
+
+        hand_segmentation=false;
+
+        trackMap.resize(304,240);
+
+        if (!image_out.open(getName() + "/image:o")) {
+            yError() << "Can't open output image port for visualization";
+            return false;
+        }
+
+        roi_hand.resize(4);
+        roi_hand = setROI(304-roi_hand_width, 304, 240-roi_hand_height, 240);
+
+        return Thread::start();
+    }
+
+    void run() {
+
+        // read some data to extract the channel
+        const vector<AE> *q = input_port.read(ystamp);
+        if (!q || Thread::isStopping()) return;
+
+        while (Thread::isRunning()) {
+
+            if (hand_segmentation) {
+
+                int nqs = input_port.queryunprocessed();
+
+                while(nqs>0) {
+                    q = input_port.read(ystamp);
+                    --nqs;
+                }
+
+                q = input_port.read(ystamp);
+
+                for (auto &v : *q)
+                    out_queue.push_front(v);
+            }
+        }
     }
 
     /********************************************************************/
@@ -267,6 +337,43 @@ class ControllerModule: public yarp::os::RFModule
             yError() << "Unable to write to file" << table_file;
             return false;
         }
+    }
+
+    yarp::sig::Vector setROI(int xl, int xh, int yl, int yh){
+
+        yarp::sig::Vector roi;
+        roi.resize(4);
+
+        roi[0] = xl; roi[1] = xh;
+        roi[2] = yl; roi[3] = yh;
+
+        return roi;
+    }
+
+    //compute standard deviation
+    std::vector<int> find_extremes(std::deque<AE> queue) {
+
+        std::vector<int> extremes;
+        std::vector<int> x_values, y_values;
+
+        for (auto &v: queue) {
+            x_values.push_back(v.x);
+            y_values.push_back(v.y);
+        }
+
+        int xmax_hand = *max_element(x_values.begin(), x_values.end());
+        int ymax_hand = *max_element(y_values.begin(), y_values.end());
+        int xmin_hand = *min_element(x_values.begin(), x_values.end());
+        int ymin_hand = *min_element(y_values.begin(), y_values.end());
+
+        extremes.push_back(xmin_hand);
+        extremes.push_back(xmax_hand);
+        extremes.push_back(ymin_hand);
+        extremes.push_back(ymax_hand);
+
+        std::cout<<"Extremes: "<<xmin_hand<<" "<<xmax_hand<<" "<<ymin_hand<<" "<<ymax_hand<<std::endl;
+
+        return extremes;
     }
 
     /********************************************************************/
@@ -333,24 +440,78 @@ class ControllerModule: public yarp::os::RFModule
         ienc->getEncoder(5, &current_wrist_pitch);
         yInfo() << current_wrist_pitch;
 
+        yarp::sig::ImageOf<yarp::sig::PixelBgr> &display = image_out.prepare();
+        display = trackMap;
+
+        trackMap.zero();
+
+        hand_segmentation = true; sum_x=0; sum_y=0; n_events=0; out_queue.clear();
+
         moveJoint(5, current_wrist_pitch - hand_vibration);
         moveJoint(5, current_wrist_pitch);
 //        moveJoint(5, current_wrist_pitch-hand_vibration);
 
-        yarp::os::Bottle *handBottle = handPort.read();
-        int u = handBottle->get(0).asInt();
-        int v = handBottle->get(1).asInt();
-        int left = handBottle->get(2).asInt();
-        int right = handBottle->get(3).asInt();
-        int bottom = handBottle->get(4).asInt();
-        int top = handBottle->get(5).asInt();
+        hand_segmentation = false;
 
+        std::cout<<"ROI: "<<roi_hand[0]<<" "<<roi_hand[1]<<" "<<roi_hand[2]<<" "<<roi_hand[3]<<std::endl;
+
+        int count=0;
+        deque<AE> queue_insideROI; queue_insideROI.clear();
+        for (auto &v : out_queue) {
+            if (v.x>roi_hand[0] && v.x<roi_hand[1] && v.y>roi_hand[2] && v.y<roi_hand[3] && count<2000) {
+
+                queue_insideROI.push_back(v);
+
+                sum_x += v.x;
+                sum_y += v.y;
+
+                n_events++;
+
+                std::cout << "x= " << v.x << ", y= " << v.y << ", ts= " << v.stamp << std::endl;
+
+                yarp::sig::PixelBgr &ePix = trackMap.pixel(v.x, v.y);
+                ePix.b = ePix.g = ePix.r = 255;
+            }
+            count++;
+        }
+
+        std::cout << sum_x << ", "<<sum_y<<", "<<n_events<<std::endl;
+
+        double xCoM = sum_x / n_events;
+        double yCoM = sum_y / n_events;
+
+        std::cout<< xCoM <<" "<<yCoM<<std::endl;
+
+        if (out_queue.size()!=0)
+            roi_hand = setROI(xCoM-roi_hand_width/2, xCoM+roi_hand_width/2, yCoM-roi_hand_height/2, yCoM+roi_hand_height/2);
+
+        std::vector<int> extremes = find_extremes(queue_insideROI);
+
+        trackImg = cv::cvarrToMat((IplImage *) display.getIplImage());
+
+        cv::applyColorMap(trackImg, trackImg, cv::COLORMAP_BONE);
+
+        // puck
+        cv::rectangle(trackImg, cv::Point(extremes[0], extremes[2]), cv::Point(extremes[1], extremes[3]),
+                      cv::Scalar(255, 255, 0), 1, 8, 0); // print ROI box
+        cv::circle(trackImg, cv::Point(xCoM,yCoM), 2, cv::Scalar(255, 255, 0), -1, 8, 0);
+
+        image_out.write();
+
+//        yarp::os::Bottle *handBottle = handPort.read();
+//        int u = handBottle->get(0).asInt();
+//        int v = handBottle->get(1).asInt();
+//        int left = handBottle->get(2).asInt();
+//        int right = handBottle->get(3).asInt();
+//        int bottom = handBottle->get(4).asInt();
+//        int top = handBottle->get(5).asInt();
+//
         yarp::sig::Vector perimeter{0,0,0,0,0,0};
-        perimeter[0]=u; perimeter[1]=v; perimeter[2]=left; perimeter[3]=right; perimeter[4]=bottom; perimeter[5]=top;
+        perimeter[0]=xCoM; perimeter[1]=yCoM; perimeter[2]=extremes[0]; perimeter[3]=extremes[1]; perimeter[4]=extremes[2]; perimeter[5]=extremes[3];
 
         table.push_back(std::make_tuple(y, perimeter));
 
-        yInfo()<<"CoM: "<<"("<<u<<" , "<<v<<")";
+//        yInfo()<<"CoM: "<<"("<<u<<" , "<<v<<")";
 
         if (which_arm=="left_arm")
             y += y_delta;
