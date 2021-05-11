@@ -519,15 +519,13 @@ class ControllerModule: public yarp::os::RFModule
 
                 yarp::sig::Vector currentArmPos, currentArmOrient, hand_pix;
                 arm->getPose(currentArmPos, currentArmOrient);
-                hand_pix = projectToVisualSpace(currentArmPos);
+//                hand_pix = projectToVisualSpace(currentArmPos);
 
 //                std::cout << "u_hand:" << hand_pix[0] << ", v_hand:" << hand_pix[1] << std::endl;
 
                 // BOTTLE for printing the current u and v of the arm and of the puck in the visual space
                 yarp::os::Bottle &hand_pix_bottle = hand_pix_port.prepare();
                 hand_pix_bottle.clear();
-                hand_pix_bottle.addDouble(hand_pix[0]); // x position of the hand wrt image plane
-                hand_pix_bottle.addDouble(hand_pix[1]); // y position of the hand wrt image plane
                 hand_pix_bottle.addDouble(currentArmPos[1]);
                 //        // communicate if the hand is present in the image plane
                 //        if (hand_pix[0]>0 && hand_pix[0]<304 && hand_pix[1]>0 && hand_pix[1]<240)
@@ -545,14 +543,14 @@ class ControllerModule: public yarp::os::RFModule
 
                 puck_rf = projectToRobotSpace(u, v);
 
+                std::cout << "Puck tracked: " << puck_rf[1]<<std::endl;
+
                 target[0] = puck_rf[1];
 
                 if (target[0]>y_max)
                     target[0]=y_max;
                 if (target[0]<y_min)
                     target[0]=y_min;
-
-//                std::cout << "TARGET y=" << target[0] << std::endl;
             }
         }
 
@@ -577,6 +575,8 @@ class ControllerModule: public yarp::os::RFModule
 
 //            reference->computeNextValues(target);
 //            double pos_minjerk = reference->getPos()[0];
+
+            std::cout << "TARGET y=" << target[0] << std::endl;
 
             double pos_minjerk = genLinTraj.getPos();
 
