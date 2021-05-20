@@ -556,7 +556,11 @@ class ControllerModule: public yarp::os::RFModule
 
                 puck_rf = projectToRobotSpace(u, v);
 
+<<<<<<< HEAD
                 std::cout << "Puck tracked: " << puck_rf[0]<<" "<<puck_rf[1]<<" "<<puck_rf[2]<<std::endl;
+=======
+                std::cout << "Puck tracked: " << puck_rf[1]<<std::endl;
+>>>>>>> 6d589443a4427b6ff52590e611eaba25e8079adf
 
                 target[0] = puck_rf[1];
 
