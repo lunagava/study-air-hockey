@@ -84,7 +84,8 @@ class ControllerModule: public yarp::os::RFModule
     bool artificial;
     double target_prec;
     double velTraj;
-    bool wait_time = true;
+    bool wait_time;
+    double holdon_time;
 
     yarp::os::BufferedPort<yarp::os::Bottle> targetPort;
     yarp::os::BufferedPort<yarp::os::Bottle> headPort, yposPort, puckPort, hand_pix_port, headJointsPort;
@@ -401,6 +402,8 @@ class ControllerModule: public yarp::os::RFModule
         // attach the callback respond()
         attach(handlerPort);
 
+        wait_time=true;
+
         return true;
     }
 
@@ -475,6 +478,13 @@ class ControllerModule: public yarp::os::RFModule
         return 0.01;
     }
 
+    double randfrom(double min, double max)
+    {
+        double range = (max - min);
+        double div = RAND_MAX / range;
+        return min + (rand() / div);
+    }
+
     /********************************************************************/
     bool updateModule() override {
 
@@ -500,8 +510,6 @@ class ControllerModule: public yarp::os::RFModule
                 if (target[0]==0)
                     target[0]=y_max;
 
-                double holdon_time;
-
                 if (genLinTraj.getPos()<=y_min){
 
                     if (wait_time==true){
@@ -509,7 +517,9 @@ class ControllerModule: public yarp::os::RFModule
                         wait_time=false;
                     }
 
-                    if (yarp::os::Time::now() - holdon_time > 2){
+                    double currTime = yarp::os::Time::now();
+
+                    if (currTime - holdon_time > 2){
                         target[0]=y_max;
                         wait_time=true;
                     }
@@ -521,12 +531,27 @@ class ControllerModule: public yarp::os::RFModule
                         wait_time=false;
                     }
 
-                    if (yarp::os::Time::now() - holdon_time > 2) {
+                    double currTime = yarp::os::Time::now();
+
+                    if (currTime - holdon_time > 2) {
                         target[0] = y_min;
                         wait_time=true;
                     }
                 }
 
+// RANDOM GENERATOR
+
+//                if (target[0]==0){
+//                    target[0] = randfrom(y_min, y_max);
+//                    holdon_time=yarp::os::Time::now();
+//                }
+//
+//                double currTime = yarp::os::Time::now();
+//
+//                if (currTime-holdon_time>5){
+//                    target[0] = randfrom(y_min, y_max);
+//                    holdon_time=yarp::os::Time::now();
+//                }
 
             } else {
 
@@ -556,11 +581,8 @@ class ControllerModule: public yarp::os::RFModule
 
                 puck_rf = projectToRobotSpace(u, v);
 
-<<<<<<< HEAD
                 std::cout << "Puck tracked: " << puck_rf[0]<<" "<<puck_rf[1]<<" "<<puck_rf[2]<<std::endl;
-=======
                 std::cout << "Puck tracked: " << puck_rf[1]<<std::endl;
->>>>>>> 6d589443a4427b6ff52590e611eaba25e8079adf
 
                 target[0] = puck_rf[1];
 
@@ -662,10 +684,10 @@ class ControllerModule: public yarp::os::RFModule
             yposPort.write();
         }
 
-        double currTime = yarp::os::Time::now();
-//        yInfo() << currTime - prevTime;
-        std::cout<<std::endl;
-        prevTime = currTime;
+//        double currTime = yarp::os::Time::now();
+////        yInfo() << currTime - prevTime;
+//        std::cout<<std::endl;
+//        prevTime = currTime;
 
         target_prec=target[0];
 
