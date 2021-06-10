@@ -1,10 +1,13 @@
 # Copyright (C) 2021 Fondazione Istituto Italiano di Tecnologia (IIT)  
 # All Rights Reserved.
 # Authors: Ugo Pattacini <ugo.pattacini@iit.it>
+#        : Luna Gava     <luna.gava@iit.it>
 
 cmake_minimum_required(VERSION 3.12)
 
 project(study-air-hockey)
+
+add_subdirectory(tracker)
 
 find_package(event-driven REQUIRED)
 find_package(YARP 3.3.0 REQUIRED COMPONENTS os sig dev math)
