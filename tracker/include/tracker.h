@@ -76,17 +76,20 @@ public:
         n = value;
         int deleted =0;
         //cout << "-----------------------------------------"<<endl;
-        //cout << "queue size: "<< q.size() << endl;
+        cout << "queue size: "<< q.size() << endl;
         while(q.size() > n){
             //cout << "x: "<<  q.back().x << ", y: "<<  q.back().y << ", disp: "<<q.back().ID<<endl;
             q.pop_back();
             deleted++;
         }
 
-        //cout <<"pop-back: "<<deleted<< endl;
+//        cout <<"pop-back: "<<deleted<< endl;
     }
 
     yarp::sig::Vector setROI(int xl, int xh, int yl, int yh) {
+//        roi[0] = 0; roi[1] = 304;
+//        roi[2] = 100; roi[3] = 240;
+
         roi[0] = xl; roi[1] = xh;
         roi[2] = yl; roi[3] = yh;
 
@@ -183,12 +186,12 @@ private:
     bool visualization; // activate if you want to visualize geometric elements in yarp image
     bool start = true;
 
-    double n_events_insideROI;
-    int n_events_acquired, n_events_acquired_insideROI, n_events_acquired_insideROI1, n_events_acquired_insideROI2;
+    int n_events_insideROI;
+    int n_events_acquired, n_events_acquired_insideROI;
 
     yarp::sig::Vector ROI, currentROI;
     cv::Mat trackImg;
-    int leftRect, rightRect, bottomRect, topRect;
+    int leftRect, rightRect, bottomRect, topRect, leftRect_next, rightRect_next, bottomRect_next, topRect_next;
     int n_iterations = 0;
 
     unsigned int i = 0;
@@ -208,6 +211,7 @@ private:
 
     // TRACKING
     double y_hand_position;
+    int x_hand_pixel, y_hand_pixel;
     std::vector <double> x_insideROI, y_insideROI;
     double std;
     double handROI_width, handROI_height;
@@ -251,4 +255,4 @@ public:
 };
 
 #endif
-//empty line to make gcc happy
+//empty line

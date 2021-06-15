@@ -39,6 +39,5 @@ target_link_libraries(${PROJECT_NAME} PRIVATE YARP::YARP_OS
 target_include_directories(${PROJECT_NAME} PRIVATE ${PROJECT_SOURCE_DIR}/include)
 
 install(TARGETS ${PROJECT_NAME} DESTINATION ${CMAKE_INSTALL_BINDIR})
-
-#file(GLOB scripts ${CMAKE_SOURCE_DIR}/*.xml)
-#yarp_install(FILES ${scripts} DESTINATION ${EVENT-DRIVEN_APPLICATIONS_INSTALL_DIR})
+file(GLOB scripts ${CMAKE_SOURCE_DIR}/app/scripts/${PROJECT_NAME}.xml)
+yarp_install(FILES ${scripts} DESTINATION ${EVENT-DRIVEN_APPLICATIONS_INSTALL_DIR})
