@@ -57,10 +57,15 @@ class roiq {
 
 public:
 
-    deque<LabelledAE> q;
+    deque<AE> q;
+    deque<AE> result;
     unsigned int n;
     yarp::sig::Vector roi;
     yarp::sig::Vector roi_hand;
+    deque<AE> update_queue;
+    AE update_events;
+    double percentage_update;
+    int queue_size;
 
     roiq() {
         roi.resize(4);
@@ -70,6 +75,7 @@ public:
         roi[2] = 0; roi[3] = 1000;
 //        roi_hand[0] = 91; roi_hand[1] = 191;//141
 //        roi_hand[2] = 139; roi_hand[3] = 239;//189
+
     }
 
     void setSize(unsigned int value) {
@@ -105,7 +111,7 @@ public:
         roi_hand[2] = yl; roi_hand[3] = yh;
     }
 
-    int add(const LabelledAE &v) {
+    int add(const AE &v) {
 
         if (v.x < roi[0] || v.x > roi[1] || v.y < roi[2] || v.y > roi[3]) {
             return 0;
@@ -113,6 +119,7 @@ public:
         if (v.x>roi_hand[0] && v.x<roi_hand[1] && v.y>roi_hand[2] && v.y<roi_hand[3]) {
             return 0;
         }
+
         q.push_front(v);
 
         return 1;
@@ -132,7 +139,7 @@ public:
 //           q.clear();
 
         // leave only the events that are inside the last ROI
-        deque<LabelledAE> _q;
+        deque<AE> _q;
         for(auto &v : q) {
             if(v.x < roi[0] || v.x > roi[1] || v.y < roi[2] || v.y > roi[3])
                 continue;
@@ -159,6 +166,7 @@ private:
     // data structures and ports
     roiq qROI;
     std::mutex m;
+    std::mutex mut;
 
     resolution res;
 
@@ -177,7 +185,9 @@ private:
     bool stationary;
 
     //variables
-    int n_rate, n_mass, n_objects, numEventsAccepted, numNewEvents;
+    int n_mass, numEventsAccepted, numNewEvents;
+    double update_rate;
+    int acquisitionType;
     double widthROI, heightROI;
     double min_widthROI, min_heightROI, max_widthROI, max_heightROI;
     double prev_t;
@@ -195,8 +205,6 @@ private:
     int n_iterations = 0;
 
     unsigned int i = 0;
-
-    std::vector<int> s1_x, s1_y, s2_x, s2_y; // vector to store positions and disparities of two sets of events
 
     // IMAGE MOMENTS
     double m00; // zero-order moment

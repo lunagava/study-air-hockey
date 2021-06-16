@@ -58,12 +58,13 @@ bool trackerModule::configure(yarp::os::ResourceFinder &rf) {
 
     // options and parameters
     n_mass = rf.check("events", Value(200)).asInt();
+    update_rate= rf.check("update_rate", Value(0.2)).asDouble();
+    acquisitionType = rf.check("acquisition_type", Value(2)).asInt();
     reset_time = rf.check("reset_time", Value(1.0)).asDouble();
     min_widthROI = rf.check("min_roi_width", Value(10)).asInt();
     min_heightROI = rf.check("min_roi_height", Value(10)).asInt();
-    max_widthROI = rf.check("max_roi_width", Value(40)).asInt();
-    max_heightROI = rf.check("max_roi_height", Value(40)).asInt();
-    n_objects = rf.check("number_of_objects", Value(1)).asInt();
+    max_widthROI = rf.check("max_roi_width", Value(100)).asInt();
+    max_heightROI = rf.check("max_roi_height", Value(100)).asInt();
     visualization = rf.check("visualization", Value(false)).asBool();
     numEventsAccepted = rf.check("num_events_accepted_insideROI", Value(20)).asInt();
     numNewEvents = rf.check("new_events_insideROI", Value(4)).asInt();
@@ -115,42 +116,92 @@ void trackerModule::run() {
 
     while (Thread::isRunning()) {
 
-        int qs = input_port.queryunprocessed() - 1; // how many packets we have processed yet
-        if (qs < 1) qs = 1; // if we do not have any queues
-        if (qs > 4) yWarning() << qs;
-
         n_events_acquired = 0;
         n_events_insideROI = 0;
         n_events_acquired_insideROI = 0;
 
-        m.lock();
+//        m.lock();
 
         currentROI = qROI.getROI();
 
 //        cout << "-----ROI-----"<<currentROI[0]<< ", "<<currentROI[1]<< ", "<<currentROI[2]<< ", "<<currentROI[3]<<endl;
 
-        // for all data that is currently queued -> add it to qROI
-        for (int i = 0; i < qs; i++) {
+        if (acquisitionType == 1){ // packet-based
+
+            int qs = input_port.queryunprocessed() - 1; // how many packets we have processed yet
+            if (qs < 1) qs = 1; // if we do not have any queues
+            if (qs > 4) yWarning() << qs;
+
+            // for all data that is currently queued -> add it to qROI
+            for (int i = 0; i < qs; i++) {
+                const vector<AE> *q = input_port.read(ystamp);
+                if (!q || Thread::isStopping()) return;
+                for (auto &v : *q) {
+
+                    n_events_acquired++;
+                    if (v.x > currentROI[0] && v.x < currentROI[1] && v.y > currentROI[2] && v.y < currentROI[3]) {
+                        n_events_acquired_insideROI++;
+                    }
+
+                    yarp::sig::PixelBgr &ePix = trackMap.pixel(v.x,v.y);
+                    ePix.b = ePix.g = ePix.r = 255;
+
+                    qROI.add(v);
+                }
+            }
+        }
+        else if (acquisitionType == 2) { // percentage of new events based
             const vector<AE> *q = input_port.read(ystamp);
             if (!q || Thread::isStopping()) return;
-            for (auto &v : *q) {
+
+//            mut.lock();
+
+            unsigned int addEvents = 0;
+
+            double t0 = yarp::os::Time::now();
+
+            while(addEvents < int(update_rate*n_mass)) {
+
+                std::cout<<"---------here"<<std::endl;
+
+                // if we ran out of events -> get a new queue
+                if(i >= q->size()) {
+                    i = 0;
+                    q = input_port.read(ystamp);
+                    std::cout<< q->size() <<std::endl;
+                    if(!q || Thread::isStopping()){
+//                        mut.unlock();
+                        return;
+                    }
+                }
 
                 n_events_acquired++;
-                if (v.x > currentROI[0] && v.x < currentROI[1] && v.y > currentROI[2] && v.y < currentROI[3]) {
+                if ((*q)[i].x > currentROI[0] && (*q)[i].x < currentROI[1] && (*q)[i].y > currentROI[2] && (*q)[i].y < currentROI[3]) {
                     n_events_acquired_insideROI++;
                 }
 
-                yarp::sig::PixelBgr &ePix = trackMap.pixel(v.x,v.y);
+                yarp::sig::PixelBgr &ePix = trackMap.pixel((*q)[i].x,(*q)[i].y);
                 ePix.b = ePix.g = ePix.r = 255;
 
-                qROI.add(v);
+                addEvents += qROI.add((*q)[i++]);
+
+                std::cout<<addEvents<<std::endl;
+
+                std::cout<<"Time: "<<yarp::os::Time::now()-t0<<std::endl;
+
+                if (yarp::os::Time::now()-t0 > 0.2)
+                    resetTracker();
             }
+
+//            mut.unlock();
         }
+
+        std::cout<<"outside: "<<std::endl;
 
         qROI.setSize(n_mass);
 
         // initialization
-        m00 = qROI.q.size();
+//        m00 = qROI.q.size();
 
         // --------------------------------- GLOBAL ROI -----------------------------------
         std::tie(m10, m01, m11, m20, m02) = computeCOM(
@@ -174,7 +225,7 @@ void trackerModule::run() {
         }
 
         if (COM_prec.x != COM.x && COM_prec.y != COM.y){
-            int factor = 1.2*1.8;
+            double factor = 1.2*1.8;
             widthROI = factor * x_var;
             heightROI = factor * y_var;
         }
@@ -211,7 +262,7 @@ void trackerModule::run() {
                 std::cout<<"EVENTS INSIDE RECT:  "<<n_events_insideROI<<std::endl;
 //                std::cout << "STD: "<<std<<endl;
 
-                if (n_events_insideROI > numEventsAccepted && n_events_acquired_insideROI > numNewEvents) {
+                if (n_events_insideROI > numEventsAccepted && n_events_acquired_insideROI > numNewEvents && std<40) {
                     tracking = true;
                     ROI = qROI.setROI(leftRect_next, rightRect_next, bottomRect_next, topRect_next);
                     prev_t = yarp::os::Time::now();
@@ -220,7 +271,7 @@ void trackerModule::run() {
             }
         }
 
-        m.unlock();
+//        m.unlock();
         Bottle &pos_Obj = posObj_port.prepare();
         pos_Obj.clear();
 
@@ -237,41 +288,6 @@ void trackerModule::run() {
         }
 
         posObj_port.write();
-
-        if (visualization) {
-            m.lock();
-            yarp::sig::ImageOf<yarp::sig::PixelBgr> &display = image_out.prepare();
-            display = trackMap;
-
-            trackMap.zero();
-            trackImg = cv::cvarrToMat((IplImage *) display.getIplImage());
-
-            cv::applyColorMap(trackImg, trackImg, cv::COLORMAP_BONE);
-
-            if (tracking){
-                // puck
-                cv::rectangle(trackImg, cv::Point(leftRect_next, bottomRect_next), cv::Point(rightRect_next, topRect_next),
-                              cv::Scalar(0, 255, 0), 1, 8, 0); // print ROI box
-//            cout << "ELLIPSE: "<< l << " "<<w<<endl;
-                cv::ellipse(trackImg, COM, cv::Size(1.8*x_var, 1.8*y_var), 0, 0, 360, cv::Scalar(0, 255,
-                                                                                         255), 2, 8, 0); // print ROI ellipse
-                cv::circle(trackImg, COM, 1, cv::Scalar(0, 0, 255), -1, 8, 0);
-            }
-
-            // hand
-//        qROI.setROI_hand(hand_roi[2], hand_roi[3],hand_roi[4], hand_roi[5]);
-//        cv::circle(trackImg, cv::Point2d(hand_roi[0], hand_roi[1]), 3, cv::Scalar(255, 255, 0), -1, 8,
-//                   0);
-//        cv::rectangle(trackImg,
-//                      cv::Point(hand_roi[2], hand_roi[4]),
-//                      cv::Point(hand_roi[3], hand_roi[5]), cv::Scalar(255, 255, 0),
-//                      1, 8, 0); // print ROI box
-//
-//        qROI.remove_handEvents();
-
-            image_out.write();
-            m.unlock();
-        }
 
     }
 }
@@ -309,8 +325,8 @@ std::tuple<double, double> trackerModule::compute_stdev(roiq qROI, cv::Point avg
 
     for (auto i = 0; i < qROI.q.size(); i++) {
 
-        yarp::sig::PixelBgr &ePix = trackMap.pixel(qROI.q[i].x,qROI.q[i].y);
-        ePix.b = ePix.g = ePix.r = 255;
+//        yarp::sig::PixelBgr &ePix = trackMap.pixel(qROI.q[i].x,qROI.q[i].y);
+//        ePix.b = ePix.g = ePix.r = 255;
 
         x_sum += (qROI.q[i].x - avg.x) * (qROI.q[i].x - avg.x);
         y_sum += (qROI.q[i].y - avg.y) * (qROI.q[i].y - avg.y);
@@ -387,7 +403,7 @@ void compute_vel (cv::Point2d actual_point, cv::Point2d previous_point, double a
 }
 
 double trackerModule::getPeriod() {
-    return 0.1; //30 Hz
+    return 0.01; //30 Hz
 }
 
 bool trackerModule::updateModule() {
@@ -409,6 +425,41 @@ bool trackerModule::updateModule() {
 //    std::cout<<"ACQUIRED EVENTS every 10 ms:  "<<n_events_acquired_insideROI<<std::endl;
 
 //    n_events_acquired_insideROI = 0;
+
+    if (visualization) {
+//        m.lock();
+        yarp::sig::ImageOf<yarp::sig::PixelBgr> &display = image_out.prepare();
+        display = trackMap;
+
+        trackMap.zero();
+        trackImg = cv::cvarrToMat((IplImage *) display.getIplImage());
+
+        cv::applyColorMap(trackImg, trackImg, cv::COLORMAP_BONE);
+
+        if (tracking){
+            // puck
+            cv::rectangle(trackImg, cv::Point(leftRect_next, bottomRect_next), cv::Point(rightRect_next, topRect_next),
+                          cv::Scalar(0, 255, 0), 1, 8, 0); // print ROI box
+//            cout << "ELLIPSE: "<< l << " "<<w<<endl;
+            cv::ellipse(trackImg, COM, cv::Size(1.8*x_var, 1.8*y_var), 0, 0, 360, cv::Scalar(0, 255,
+                                                                                             255), 2, 8, 0); // print ROI ellipse
+            cv::circle(trackImg, COM, 1, cv::Scalar(0, 0, 255), -1, 8, 0);
+        }
+
+        // hand
+//        qROI.setROI_hand(hand_roi[2], hand_roi[3],hand_roi[4], hand_roi[5]);
+//        cv::circle(trackImg, cv::Point2d(hand_roi[0], hand_roi[1]), 3, cv::Scalar(255, 255, 0), -1, 8,
+//                   0);
+//        cv::rectangle(trackImg,
+//                      cv::Point(hand_roi[2], hand_roi[4]),
+//                      cv::Point(hand_roi[3], hand_roi[5]), cv::Scalar(255, 255, 0),
+//                      1, 8, 0); // print ROI box
+//
+//        qROI.remove_handEvents();
+
+        image_out.write();
+//        m.unlock();
+    }
 
     return Thread::isRunning();
 }
