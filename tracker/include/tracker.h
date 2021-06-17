@@ -82,7 +82,7 @@ public:
         n = value;
         int deleted =0;
         //cout << "-----------------------------------------"<<endl;
-        cout << "queue size: "<< q.size() << endl;
+//        cout << "queue size: "<< q.size() << endl;
         while(q.size() > n){
             //cout << "x: "<<  q.back().x << ", y: "<<  q.back().y << ", disp: "<<q.back().ID<<endl;
             q.pop_back();
@@ -185,7 +185,7 @@ private:
     bool stationary;
 
     //variables
-    int n_mass, numEventsAccepted, numNewEvents;
+    double n_mass, n_mass_max, n_mass_min, numEventsAccepted, numNewEvents;
     double update_rate;
     int acquisitionType;
     double widthROI, heightROI;
@@ -194,7 +194,7 @@ private:
     double reset_time;
     bool tracking, detected;
     bool visualization; // activate if you want to visualize geometric elements in yarp image
-    bool start = true;
+    int activation_thresh;
 
     int n_events_insideROI;
     int n_events_acquired, n_events_acquired_insideROI;
@@ -229,9 +229,10 @@ private:
     std::vector<std::shared_ptr<tk::spline>> interp;
     double y_min, y_max;
 
-    double x_var, y_var;
+    double x_dev, y_dev;
 
     void resetTracker();
+    double SeriesInverseError20thOrder(const double x);
     auto readTable();
     double compute_std(roiq qROI, cv::Point avg);
     std::tuple <double, double> compute_stdev(roiq qROI, cv::Point avg);
