@@ -7,14 +7,14 @@ y = []
 timestamp = []
 set_points = []
 couple = []
-n_points = 20
+n_points = 100
 bb_width = 10
 bb_height = 10
 
 out_file = open("points.csv", "w")
 
 def interpolation(d, x):
-	output = int(d[0][1] + (x - d[0][0]) * (d[1][1] - d[0][1]) / (d[1][0] - d[0][0]))
+	output = d[0][1] + (x - d[0][0]) * (d[1][1] - d[0][1]) / (d[1][0] - d[0][0])
 	return output
 
 def compute_deltaTime(start, end, num_points):
@@ -37,24 +37,25 @@ with open(filePath) as csvfile:
 
 		count += 1
 
-		if (count == 2):
+		if count == 2:
 
 			count = 0
-			currentT = timestamp[0]
-			deltaT = compute_deltaTime(timestamp[0], timestamp[1], n_points)
 
 			data = [x[0], y[0]]
 			couple.append(data)
 			data = [x[1], y[1]]
 			couple.append(data)
 
-			x_new = min(x)
+			x_new = x[0]
+
+			currentT = timestamp[0]
+			deltaT = compute_deltaTime(timestamp[0], timestamp[1], n_points)
 
 			factor = (max(x)-min(x))/n_points
+			counter_points = 0
 
 			# new points
-			while (x_new <= max(x)):
-				x_new = x_new + factor
+			while counter_points <= n_points:
 
 				y_new = interpolation(couple, x_new)
 
@@ -66,9 +67,16 @@ with open(filePath) as csvfile:
 				top_bb = int(round(y_new + bb_height/2))
 
 				out_file.write(str(left_bb)+','+str(bottom_bb)+','+str(right_bb)+','+str(top_bb)+','+str(int(round(currentT)))+'\n')
+
+				if (x[0]>x[1]):
+					x_new = x_new - factor
+				else:
+					x_new = x_new + factor
+
 				currentT = currentT + deltaT
 
 				set_points.append(point)
+				counter_points += 1
 
 			xp = [x[0] for x in set_points]
 			yp = [x[1] for x in set_points]
