@@ -60,8 +60,8 @@ bool trackerModule::configure(yarp::os::ResourceFinder &rf) {
     n_mass = rf.check("events", Value(100)).asInt();
     n_mass_max = rf.check("max_events", Value(200)).asInt();
     n_mass_min = rf.check("min_events", Value(10)).asInt();
-    update_rate= rf.check("update_rate", Value(0.5)).asDouble();
-    reset_time = rf.check("reset_time", Value(1.0)).asDouble();
+    update_rate= rf.check("update_rate", Value(0.2)).asDouble();
+    reset_time = rf.check("reset_time", Value(0.2)).asDouble();
     min_widthROI = rf.check("min_roi_width", Value(10)).asInt();
     min_heightROI = rf.check("min_roi_height", Value(10)).asInt();
     max_widthROI = rf.check("max_roi_width", Value(40)).asInt();
@@ -124,11 +124,11 @@ void trackerModule::run() {
         const vector<AE> *q = input_port.read(ystamp);
         if (!q || Thread::isStopping()) return;
 
-//            mut.lock();
+//        mut.lock();
 
         unsigned int addEvents = 0;
 
-        std::cout<<"Events TO ACQUIRE: "<<int(update_rate*n_mass)<<std::endl;
+//        std::cout<<"Events TO ACQUIRE: "<<int(update_rate*n_mass)<<std::endl;
 
         while(addEvents < int(update_rate*n_mass)) {
 
@@ -142,16 +142,16 @@ void trackerModule::run() {
                     return;
                 }
             }
-                yarp::sig::PixelBgr &ePix = trackMap.pixel((*q)[i].x,(*q)[i].y);
-                ePix.b = ePix.g = ePix.r = 255;
+            yarp::sig::PixelBgr &ePix = trackMap.pixel((*q)[i].x,(*q)[i].y);
+            ePix.b = ePix.g = ePix.r = 255;
 
             addEvents += qROI.add((*q)[i++]);
 
-            std::cout<<"EVENTS ADDED TO ROI: "<<addEvents<<std::endl;
+//            std::cout<<"EVENTS ADDED TO ROI: "<<addEvents<<std::endl;
 
         }
 
-//            mut.unlock();
+//        mut.unlock();
 
         qROI.setSize(n_mass);
 
@@ -213,18 +213,41 @@ void trackerModule::run() {
             topRect_next = COM.y + heightROI;
 
             ROI = qROI.setROI(leftRect_next, rightRect_next, bottomRect_next, topRect_next);
+
+            double coeff = res.height/(n_mass_max-n_mass_min);
+            if (COM.y!=0)
+                n_mass = int((1/coeff)*COM.y + coeff*n_mass_min);
+
+//            std::cout<<"recalculated queue size: "<<n_mass<<std::endl;
+
+            if (COM_history.size()>3){
+                COM_history.push_front(COM);
+                COM_history.pop_back();
+
+                velocity = compute_vel(COM_history);
+                nextROI_COM = cv::Point(COM.x + velocity.x, COM.y + velocity.y);
+
+                left_ROI_predicted = nextROI_COM.x - widthROI;
+                right_ROI_predicted = nextROI_COM.x + widthROI;
+                bottom_ROI_predicted = nextROI_COM.y - heightROI;
+                top_ROI_predicted = nextROI_COM.y + heightROI;
+
+//                ROI = qROI.setROI(left_ROI_predicted, right_ROI_predicted, bottom_ROI_predicted, top_ROI_predicted);
+            }
+            else{
+                COM_history.push_front(COM);
+            }
+
+            std::cout<< "actual COM: ("<<COM.x<<", "<<COM.y<<")"<<std::endl;
+            std::cout<< "VELOCITY: ("<<velocity.x<<", "<<velocity.y<<")"<<std::endl;
+            std::cout<< "next COM: ("<<nextROI_COM.x<<", "<<nextROI_COM.y<<")"<<std::endl;
+
             prev_t = yarp::os::Time::now();
 
             pos_Obj.addInt(COM.x);
             pos_Obj.addInt(COM.y);
             pos_Obj.addInt(1);
 //            cout << "tracked" << "(" << COM.x << " , " << COM.y << ")" << endl;
-
-            double coeff = res.height/(n_mass_max-n_mass_min);
-            if (COM.y!=0)
-                n_mass = int((1/coeff)*COM.y + coeff*n_mass_min);
-
-            std::cout<<"recalculated queue size: "<<n_mass<<std::endl;
 
         }
 
@@ -267,10 +290,6 @@ std::tuple<double, double> trackerModule::compute_stdev(roiq qROI, cv::Point avg
     double x_stdev=0, y_stdev=0;
 
     for (auto i = 0; i < qROI.q.size(); i++) {
-
-//        yarp::sig::PixelBgr &ePix = trackMap.pixel(qROI.q[i].x,qROI.q[i].y);
-//        ePix.b = ePix.g = ePix.r = 255;
-
         x_sum += (qROI.q[i].x - avg.x) * (qROI.q[i].x - avg.x);
         y_sum += (qROI.q[i].y - avg.y) * (qROI.q[i].y - avg.y);
     }
@@ -287,6 +306,9 @@ std::tuple<double, double, double, double, double> trackerModule::computeCOM(roi
     int m10 = 0, m01 = 0;
     double m11 = 0, m20 = 0, m02 = 0;
     for (auto i = 0; i < m00; i++) {
+
+//        yarp::sig::PixelBgr &ePix = trackMap.pixel(qROI.q[i].x,qROI.q[i].y);
+//        ePix.b = ePix.g = ePix.r = 255;
 
         // compute raw moments of first order
         m10 += qROI.q[i].x; // sum of coord x of events within the ROI
@@ -333,13 +355,75 @@ trackerModule::ellipseParam(double m00, double m10, double m01, double m11, doub
     return std::make_tuple(l, w, thetaRad);
 }
 
-void compute_vel (cv::Point2d actual_point, cv::Point2d previous_point, double actual_t, double previous_t){
+std::tuple<double, double> trackerModule::leastSquare(std::deque<cv::Point2d> points){
 
-    double dist = sqrt(pow((actual_point.x - previous_point.x),2) + pow((actual_point.y - previous_point.y),2));
-    double vel = dist / (actual_t - previous_t);
+    std::vector<double> xy;
+    std::vector<double> x_sqrd;
+    std::vector<double> y_sqrd;
 
-    double slope = (actual_point.y - previous_point.y)/(actual_point.x - previous_point.x);
+    double n = points.size();
+    double sum_x = 0;
+    double sum_y = 0;
+    double sum_xy = 0;
+    double sum_x_sqrd = 0;
+    double sum_y_sqrd = 0;
 
+    for (auto point : points)
+    {
+        sum_x += point.x;
+        sum_y += point.y;
+        xy.push_back( point.x * point.y );
+        x_sqrd.push_back( pow(point.x, 2) );
+        y_sqrd.push_back( pow(point.y, 2) );
+    }
+
+    for (auto val : xy)
+    {
+        sum_xy += val;
+    }
+
+    for (auto val : x_sqrd)
+    {
+        sum_x_sqrd += val;
+    }
+
+    for (auto val : y_sqrd)
+    {
+        sum_y_sqrd += val;
+    }
+
+    double m;
+    double q;
+
+    m = ( (n * sum_xy) - (sum_x * sum_y) ) / ( (n * sum_x_sqrd) - pow(sum_x, 2) );
+    q = ( (sum_y * sum_x_sqrd) - (sum_x * sum_xy) ) / ( (n * sum_x_sqrd) - pow(sum_x, 2) );
+
+    return std::make_tuple(m, q);
+}
+
+cv::Point2d trackerModule::compute_vel(std::deque<cv::Point2d> points)
+{
+    double m, q;
+    cv::Point2d vel;
+
+    std::tie(m, q) = leastSquare(points);
+
+    cv::Point2d initPos, finalPos;
+
+    initPos.y = points.back().y;
+    initPos.x = ( initPos.y - q ) / m;
+
+    //std::cout << initPos.x << " " << initPos.y << std::endl;
+
+    finalPos.y = points.front().y;
+    finalPos.x = ( finalPos.y - q) / m;
+
+    //std::cout << finalPos.x << " " << finalPos.y << std::endl;
+
+    vel.x = (finalPos.x - initPos.x) / double(points.size()-1);
+    vel.y = (finalPos.y - initPos.y) / double(points.size()-1);
+
+    return vel;
 }
 
 double trackerModule::getPeriod() {
@@ -359,25 +443,6 @@ bool trackerModule::updateModule() {
         }
     }
 
-
-//    Bottle *bottle_hand_location = hand_location.read();
-//    y_hand_position = bottle_hand_location->get(0).asDouble();
-//    x_hand_pixel = bottle_hand_location->get(1).asDouble();
-//    y_hand_pixel = bottle_hand_location->get(2).asDouble();
-//
-//    std::cout<<"u HAND: "<<x_hand_pixel<<std::endl;
-//    std::cout<<"v HAND: "<<y_hand_pixel<<std::endl;
-//    std::cout<<"Y CARTESIAN HAND: "<<y_hand_position<<std::endl;
-
-//    std::vector<double> hand_roi(6);
-//    for (size_t i = 0; i < hand_roi.size(); i++) {
-//        hand_roi[i] = interp[i]->operator()(y_hand_position);
-//    }
-
-//    std::cout<<"ACQUIRED EVENTS every 10 ms:  "<<n_events_acquired_insideROI<<std::endl;
-
-//    n_events_acquired_insideROI = 0;
-
     if (visualization) {
 //        m.lock();
         yarp::sig::ImageOf<yarp::sig::PixelBgr> &display = image_out.prepare();
@@ -392,6 +457,9 @@ bool trackerModule::updateModule() {
             // puck
             cv::rectangle(trackImg, cv::Point(leftRect_next, bottomRect_next), cv::Point(rightRect_next, topRect_next),
                           cv::Scalar(0, 255, 0), 1, 8, 0); // print ROI box
+            cv::rectangle(trackImg, cv::Point(left_ROI_predicted, bottom_ROI_predicted), cv::Point(right_ROI_predicted, top_ROI_predicted),
+                          cv::Scalar(255, 0, 0), 1, 8, 0); // print ROI box
+            cv::circle(trackImg, nextROI_COM, 1, cv::Scalar(255, 0, 0), -1, 8, 0);
 //            cout << "ELLIPSE: "<< l << " "<<w<<endl;
             cv::ellipse(trackImg, COM, cv::Size(1.8*x_dev, 1.8*y_dev), 0, 0, 360, cv::Scalar(0, 255,
                                                                                              255), 1, 8, 0); // print ROI ellipse
@@ -412,6 +480,21 @@ bool trackerModule::updateModule() {
         image_out.write();
 //        m.unlock();
     }
+
+
+//    Bottle *bottle_hand_location = hand_location.read();
+//    y_hand_position = bottle_hand_location->get(0).asDouble();
+//    x_hand_pixel = bottle_hand_location->get(1).asDouble();
+//    y_hand_pixel = bottle_hand_location->get(2).asDouble();
+//
+//    std::cout<<"u HAND: "<<x_hand_pixel<<std::endl;
+//    std::cout<<"v HAND: "<<y_hand_pixel<<std::endl;
+//    std::cout<<"Y CARTESIAN HAND: "<<y_hand_position<<std::endl;
+
+//    std::vector<double> hand_roi(6);
+//    for (size_t i = 0; i < hand_roi.size(); i++) {
+//        hand_roi[i] = interp[i]->operator()(y_hand_position);
+//    }
 
     return Thread::isRunning();
 }

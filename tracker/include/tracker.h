@@ -230,6 +230,10 @@ private:
     double y_min, y_max;
 
     double x_dev, y_dev;
+    std::deque<cv::Point2d> COM_history;
+    cv::Point nextROI_COM;
+    cv::Point2d velocity;
+    double left_ROI_predicted, right_ROI_predicted, bottom_ROI_predicted, top_ROI_predicted;
 
     void resetTracker();
     double SeriesInverseError20thOrder(const double x);
@@ -238,6 +242,9 @@ private:
     std::tuple <double, double> compute_stdev(roiq qROI, cv::Point avg);
     std::tuple <double, double, double, double, double> computeCOM(roiq qROI);
     std::tuple <double, double, double> ellipseParam(double m00, double m10, double m01, double m11, double m20, double m02);
+    std::tuple<double, double> leastSquare(std::deque<cv::Point2d> points);
+    cv::Point2d compute_vel(std::deque<cv::Point2d> points);
+
 
 protected:
 
