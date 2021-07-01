@@ -1,6 +1,6 @@
 import matplotlib.pyplot as plt
 import sys
-import os
+import numpy as np
 
 x = []
 y = []
@@ -13,82 +13,97 @@ bb_height = 10
 
 out_file = open("points.csv", "w")
 
+
 def interpolation(d, x):
-	output = d[0][1] + (x - d[0][0]) * (d[1][1] - d[0][1]) / (d[1][0] - d[0][0])
-	return output
+    if (d[1][0] - d[0][0]) != 0:
+        output = d[0][1] + (x - d[0][0]) * (d[1][1] - d[0][1]) / (d[1][0] - d[0][0])
+    else:
+        output = 0
+    return output
+
 
 def compute_deltaTime(start, end, num_points):
-	delta_t = (end-start) / num_points
-	return delta_t
+    delta_t = (end - start) / num_points
+    return delta_t
 
 
 filePath = sys.argv[1]
 
-with open(filePath) as csvfile:
-	lines = csvfile.readlines()
+ground_truth = np.genfromtxt(filePath, delimiter=",", names=["x", "y", "timestamp"])
 
-	count = 0
+xCoM = ground_truth["x"]
+yCoM = ground_truth["y"]
+CoM_timestamp = ground_truth["timestamp"]
 
-	for i in range(len(lines)):
+count = 0
 
-		x.append(int(lines[i].split(',')[0]))
-		y.append(int(lines[i].split(',')[1]))
-		timestamp.append(int(lines[i].split(',')[2]))
+for i in range(len(CoM_timestamp)):
 
-		count += 1
+    count += 1
 
-		if count == 2:
+    if count == 2:
 
-			count = 0
+        count = 0
 
-			data = [x[0], y[0]]
-			couple.append(data)
-			data = [x[1], y[1]]
-			couple.append(data)
+        data = [xCoM[i - 1], yCoM[i - 1]]
+        couple.append(data)
+        data = [xCoM[i], yCoM[i]]
+        couple.append(data)
 
-			x_new = x[0]
+        print(data)
 
-			currentT = timestamp[0]
-			deltaT = compute_deltaTime(timestamp[0], timestamp[1], n_points)
+        x_new = xCoM[i - 1]
 
-			factor = (max(x)-min(x))/n_points
-			counter_points = 0
+        currentT = CoM_timestamp[i - 1]
+        deltaT = compute_deltaTime(CoM_timestamp[i - 1], CoM_timestamp[i], n_points)
 
-			# new points
-			while counter_points <= n_points:
+        x_factor = abs(xCoM[i - 1] - xCoM[i]) / n_points
+        if (couple[1][0] - couple[0][0]) == 0:
+            y_factor = abs(yCoM[i - 1] - yCoM[i]) / n_points
 
-				y_new = interpolation(couple, x_new)
+        counter_points = 0
 
-				point = [x_new, y_new]
+        # new points
+        while counter_points <= n_points:
 
-				left_bb = int(round(x_new - bb_width/2))
-				right_bb = int(round(x_new + bb_width/2))
-				bottom_bb = int(round(y_new - bb_height/2))
-				top_bb = int(round(y_new + bb_height/2))
+            if (couple[1][0] - couple[0][0]) != 0:
+                y_new = interpolation(couple, x_new)
+                point = [x_new, y_new]
+            else:
+                if yCoM[i - 1] > yCoM[i]:
+                    point = [couple[0][0], y_new - y_factor]
+                else:
+                    point = [couple[0][0], y_new + y_factor]
 
-				out_file.write(str(left_bb)+','+str(bottom_bb)+','+str(right_bb)+','+str(top_bb)+','+str(int(round(currentT)))+'\n')
+            left_bb = int(round(x_new - bb_width / 2))
+            right_bb = int(round(x_new + bb_width / 2))
+            bottom_bb = int(round(y_new - bb_height / 2))
+            top_bb = int(round(y_new + bb_height / 2))
 
-				if (x[0]>x[1]):
-					x_new = x_new - factor
-				else:
-					x_new = x_new + factor
+            out_file.write(str(left_bb) + ',' + str(bottom_bb) + ',' + str(right_bb) + ',' + str(top_bb) + ',' + str(
+                int(round(currentT))) + ',' + str(1) + '\n')
 
-				currentT = currentT + deltaT
+            if xCoM[i - 1] > xCoM[i]:
+                x_new = x_new - x_factor
+            else:
+                x_new = x_new + x_factor
 
-				set_points.append(point)
-				counter_points += 1
+            currentT = currentT + deltaT
 
-			xp = [x[0] for x in set_points]
-			yp = [x[1] for x in set_points]
-			plt.plot(xp, yp, 'ro')
-			plt.axis([0, 304, 0, 240])
-			plt.show()
+            set_points.append(point)
+            counter_points += 1
 
-			set_points.clear()
-			x.clear()
-			y.clear()
-			timestamp.clear()
-			data.clear()
-			couple.clear()
+        # xp = [x[0] for x in set_points]
+        # yp = [x[1] for x in set_points]
+        # plt.plot(xp, yp, 'ro')
+        # plt.axis([0, 304, 0, 240])
+        # plt.show()
+
+        set_points.clear()
+        x.clear()
+        y.clear()
+        timestamp.clear()
+        data.clear()
+        couple.clear()
 
 out_file.close()
