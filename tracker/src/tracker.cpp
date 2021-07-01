@@ -58,10 +58,10 @@ bool trackerModule::configure(yarp::os::ResourceFinder &rf) {
 
     // options and parameters
     n_mass = rf.check("events", Value(100)).asInt();
-    n_mass_max = rf.check("max_events", Value(200)).asInt();
-    n_mass_min = rf.check("min_events", Value(10)).asInt();
+    n_mass_max = rf.check("max_events", Value(400)).asInt();
+    n_mass_min = rf.check("min_events", Value(20)).asInt();
     update_rate= rf.check("update_rate", Value(0.2)).asDouble();
-    reset_time = rf.check("reset_time", Value(0.2)).asDouble();
+    reset_time = rf.check("reset_time", Value(10)).asDouble();
     min_widthROI = rf.check("min_roi_width", Value(10)).asInt();
     min_heightROI = rf.check("min_roi_height", Value(10)).asInt();
     max_widthROI = rf.check("max_roi_width", Value(40)).asInt();
@@ -97,8 +97,8 @@ bool trackerModule::configure(yarp::os::ResourceFinder &rf) {
     res.height = 240;
     res.width = 304;
 
-//    handROI_width = 100;
-//    handROI_height = 150;
+    handROI_width = 100;
+    handROI_height = 150;
 
     ROI.resize(4);
 
@@ -106,6 +106,13 @@ bool trackerModule::configure(yarp::os::ResourceFinder &rf) {
 
     widthROI = min_widthROI;
     heightROI = min_heightROI;
+
+    myfile.open("/code/luna/study-air-hockey/tracker/COM.csv");
+    if (!myfile.is_open())
+    {
+        yError()<<"Could not open file for printing COMs";
+        return -1;
+    }
 
     return Thread::start();
 }
@@ -159,7 +166,7 @@ void trackerModule::run() {
 //        m00 = qROI.q.size();
 
         // --------------------------------- GLOBAL ROI -----------------------------------
-        std::tie(m10, m01, m11, m20, m02) = computeCOM(
+        std::tie(m10, m01, m11, m20, m02, COM_timestamp) = computeCOM(
                 qROI); // function to compute center of mass and firs-order moments of events inside the global ROI
 //        std::tie(l, w, thetaRad) = ellipseParam(m00, m10, m01, m11, m20,
 //                                                m02); // function to compute "global" ellipse parameters
@@ -177,13 +184,14 @@ void trackerModule::run() {
 
             std = compute_std(qROI, COM);
 
-            if (k * std < 40) {
+            if (k * std < 80) {
                 tracking = true;
                 prev_t = yarp::os::Time::now();
             } else{
                 pos_Obj.addInt(0);
                 pos_Obj.addInt(0);
                 pos_Obj.addInt(0);
+                pos_Obj.addDouble(0);
 //            cout << "NOT tracked" << endl;
             }
         }
@@ -193,7 +201,7 @@ void trackerModule::run() {
             std::tie(x_dev, y_dev) = compute_stdev(qROI, COM);
 
             if (COM_prec.x != COM.x && COM_prec.y != COM.y){
-                double factor = 1.2*1.8;
+                double factor = 1.5*1.8;
                 widthROI = factor * x_dev;
                 heightROI = factor * y_dev;
             }
@@ -238,7 +246,8 @@ void trackerModule::run() {
                 COM_history.push_front(COM);
             }
 
-            std::cout<< "actual COM: ("<<COM.x<<", "<<COM.y<<")"<<std::endl;
+            std::cout<<"m00: "<<qROI.q.size()<<std::endl;
+            std::cout<< "actual COM: ("<<COM.x<<", "<<COM.y<<", "<<COM_timestamp<<")"<<std::endl;
             std::cout<< "VELOCITY: ("<<velocity.x<<", "<<velocity.y<<")"<<std::endl;
             std::cout<< "next COM: ("<<nextROI_COM.x<<", "<<nextROI_COM.y<<")"<<std::endl;
 
@@ -247,6 +256,7 @@ void trackerModule::run() {
             pos_Obj.addInt(COM.x);
             pos_Obj.addInt(COM.y);
             pos_Obj.addInt(1);
+            pos_Obj.addDouble(velocity.y);
 //            cout << "tracked" << "(" << COM.x << " , " << COM.y << ")" << endl;
 
         }
@@ -262,6 +272,8 @@ void trackerModule::resetTracker() {
     n_mass = n_mass_max;
     qROI.setSize(0);
     ROI = qROI.setROI(0, res.width, 0, res.height);
+
+    COM_history.clear();
 
     tracking = false;
 }
@@ -300,11 +312,12 @@ std::tuple<double, double> trackerModule::compute_stdev(roiq qROI, cv::Point avg
     return std::make_tuple(x_stdev,y_stdev);
 }
 
-std::tuple<double, double, double, double, double> trackerModule::computeCOM(roiq qROI) {
+std::tuple<double, double, double, double, double, double> trackerModule::computeCOM(roiq qROI) {
 
     double m00 = qROI.q.size();
     int m10 = 0, m01 = 0;
     double m11 = 0, m20 = 0, m02 = 0;
+    double time_sum, mean_time;
     for (auto i = 0; i < m00; i++) {
 
 //        yarp::sig::PixelBgr &ePix = trackMap.pixel(qROI.q[i].x,qROI.q[i].y);
@@ -314,6 +327,8 @@ std::tuple<double, double, double, double, double> trackerModule::computeCOM(roi
         m10 += qROI.q[i].x; // sum of coord x of events within the ROI
         m01 += qROI.q[i].y; // sum of coord y of events within the ROI
 
+        time_sum += qROI.q[i].stamp*vtsHelper::tsscaler*1000; //ms
+
         // compute raw moments of second order
         m11 += (qROI.q[i].x) * (qROI.q[i].y);
         m20 += pow(qROI.q[i].x, 2.0);
@@ -321,11 +336,13 @@ std::tuple<double, double, double, double, double> trackerModule::computeCOM(roi
 
     }
 
+    mean_time = time_sum/m00;
+
     // compute the center of mass
     m10 = m10 / m00;
     m01 = m01 / m00;
 
-    return std::make_tuple(m10, m01, m11, m20, m02);
+    return std::make_tuple(m10, m01, m11, m20, m02, mean_time);
 }
 
 std::tuple<double, double, double>
@@ -432,7 +449,10 @@ double trackerModule::getPeriod() {
 
 bool trackerModule::updateModule() {
 
-    if (tracking){
+//    std::cout << "--------------------- UPDATE ------------------------"<<std::endl;
+
+    if (tracking)
+    {
         double curr_time = yarp::os::Time::now();
 //            cout << "Time passed: "<< curr_time - prev_t <<std::endl;
 
@@ -441,7 +461,26 @@ bool trackerModule::updateModule() {
                     << " seconds.--------------------------------------------------";
             resetTracker();
         }
+
+        myfile << COM.x << ","<< COM.y << ","<< COM_timestamp <<","<<std::endl;
     }
+
+    Bottle *bottle_hand_location = hand_location.read();
+    y_hand_position = bottle_hand_location->get(0).asDouble();
+    x_hand_pixel = bottle_hand_location->get(1).asDouble();
+    y_hand_pixel = bottle_hand_location->get(2).asDouble();
+
+    std::cout<<"u HAND: "<<x_hand_pixel<<std::endl;
+    std::cout<<"v HAND: "<<y_hand_pixel<<std::endl;
+    std::cout<<"Y CARTESIAN HAND: "<<y_hand_position<<std::endl;
+
+    std::vector<double> hand_roi(6);
+    for (size_t i = 0; i < hand_roi.size(); i++) {
+        hand_roi[i] = interp[i]->operator()(y_hand_position);
+    }
+
+    qROI.setROI_hand(hand_roi[2], hand_roi[3],hand_roi[4], hand_roi[5]);
+    qROI.remove_handEvents();
 
     if (visualization) {
 //        m.lock();
@@ -467,34 +506,16 @@ bool trackerModule::updateModule() {
         }
 
         // hand
-//        qROI.setROI_hand(hand_roi[2], hand_roi[3],hand_roi[4], hand_roi[5]);
-//        cv::circle(trackImg, cv::Point2d(hand_roi[0], hand_roi[1]), 3, cv::Scalar(255, 255, 0), -1, 8,
-//                   0);
-//        cv::rectangle(trackImg,
-//                      cv::Point(hand_roi[2], hand_roi[4]),
-//                      cv::Point(hand_roi[3], hand_roi[5]), cv::Scalar(255, 255, 0),
-//                      1, 8, 0); // print ROI box
-//
-//        qROI.remove_handEvents();
+        cv::circle(trackImg, cv::Point2d(hand_roi[0], hand_roi[1]), 3, cv::Scalar(255, 255, 0), -1, 8,
+                   0);
+        cv::rectangle(trackImg,
+                      cv::Point(hand_roi[2], hand_roi[4]),
+                      cv::Point(hand_roi[3], hand_roi[5]), cv::Scalar(255, 255, 0),
+                      1, 8, 0); // print ROI box
 
         image_out.write();
 //        m.unlock();
     }
-
-
-//    Bottle *bottle_hand_location = hand_location.read();
-//    y_hand_position = bottle_hand_location->get(0).asDouble();
-//    x_hand_pixel = bottle_hand_location->get(1).asDouble();
-//    y_hand_pixel = bottle_hand_location->get(2).asDouble();
-//
-//    std::cout<<"u HAND: "<<x_hand_pixel<<std::endl;
-//    std::cout<<"v HAND: "<<y_hand_pixel<<std::endl;
-//    std::cout<<"Y CARTESIAN HAND: "<<y_hand_position<<std::endl;
-
-//    std::vector<double> hand_roi(6);
-//    for (size_t i = 0; i < hand_roi.size(); i++) {
-//        hand_roi[i] = interp[i]->operator()(y_hand_position);
-//    }
 
     return Thread::isRunning();
 }
@@ -508,6 +529,8 @@ void trackerModule::onStop() {
     output_port.close();
     posObj_port.close();
     image_out.close();
+
+    myfile.close();
 }
 
 /*////////////////////////////////////////////////////////////////////////////*/

@@ -73,8 +73,8 @@ public:
         n = 1000;
         roi[0] = 0; roi[1] = 1000;
         roi[2] = 0; roi[3] = 1000;
-//        roi_hand[0] = 91; roi_hand[1] = 191;//141
-//        roi_hand[2] = 139; roi_hand[3] = 239;//189
+        roi_hand[0] = 91; roi_hand[1] = 191;//141
+        roi_hand[2] = 139; roi_hand[3] = 239;//189
 
     }
 
@@ -234,13 +234,16 @@ private:
     cv::Point nextROI_COM;
     cv::Point2d velocity;
     double left_ROI_predicted, right_ROI_predicted, bottom_ROI_predicted, top_ROI_predicted;
+    double COM_timestamp;
+
+    std::vector<double> hand_roi;
 
     void resetTracker();
     double SeriesInverseError20thOrder(const double x);
     auto readTable();
     double compute_std(roiq qROI, cv::Point avg);
     std::tuple <double, double> compute_stdev(roiq qROI, cv::Point avg);
-    std::tuple <double, double, double, double, double> computeCOM(roiq qROI);
+    std::tuple <double, double, double, double, double, double> computeCOM(roiq qROI);
     std::tuple <double, double, double> ellipseParam(double m00, double m10, double m01, double m11, double m20, double m02);
     std::tuple<double, double> leastSquare(std::deque<cv::Point2d> points);
     cv::Point2d compute_vel(std::deque<cv::Point2d> points);
