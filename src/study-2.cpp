@@ -90,7 +90,7 @@ class ControllerModule: public yarp::os::RFModule, public yarp::os::Thread
     double t0_max, t0_min;
 
     std::ofstream myFile1, myFile2;
-    double puck_velocity;
+    double puck_velocity, sending_time;
 
     yarp::os::BufferedPort<yarp::os::Bottle> targetPort;
     yarp::os::BufferedPort<yarp::os::Bottle> headPort, yposPort, puckPort, hand_pix_port, headJointsPort;
@@ -230,7 +230,7 @@ class ControllerModule: public yarp::os::RFModule, public yarp::os::Thread
 
         gaze->get2DPixel(whichImagePlane, robPos, imagePos); // project the hand Cartesian position into the image plane
 
-        std::cout<<"get2DPixel results: "<<imagePos[0]<<" "<<imagePos[1]<<std::endl;
+//        std::cout<<"get2DPixel results: "<<imagePos[0]<<" "<<imagePos[1]<<std::endl;
 
         return imagePos;
     }
@@ -411,8 +411,6 @@ class ControllerModule: public yarp::os::RFModule, public yarp::os::Thread
 
         wait_time=true;
 
-        yarp::os::Time::delay(20.);
-
         myFile1.open("/code/luna/study-air-hockey/COM_pix.csv");
         if (!myFile1.is_open())
         {
@@ -442,26 +440,9 @@ class ControllerModule: public yarp::os::RFModule, public yarp::os::Thread
             u = b->get(0).asInt(); // x coordinate of the pixel within the image plane
             v = b->get(1).asInt(); // y coordinate of the pixel within the image plane
             puck_tracked = b->get(2).asInt(); //verify if the target is tracked or not
-            puck_velocity = b->get(3).asDouble(); //verify if the target is tracked or not
+            puck_velocity = b->get(3).asDouble(); // puck velocity along y
+//            sending_time =  b->get(4).asDouble();
             std::cout << "u_puck = " << u << ", v_puck = " << v << ", tracked=" << puck_tracked <<", vel="<<puck_velocity<< std::endl;
-
-            if (puck_tracked && v>50 && puck_velocity>0){
-
-                puck_rf = projectToRobotSpace(u, v);
-
-                std::cout << "Puck tracked: " << puck_rf[0]<<" "<<puck_rf[1]<<" "<<puck_rf[2]<<std::endl;
-
-                static double t0 = yarp::os::Time::now();
-                myFile1<<u<<","<<yarp::os::Time::now()-t0<<","<<std::endl;
-                myFile2<<puck_rf[1]<<","<<yarp::os::Time::now()-t0<<","<<std::endl;
-
-                target[0] = puck_rf[1];
-
-                if (target[0]>y_max)
-                    target[0]=y_max;
-                if (target[0]<y_min)
-                    target[0]=y_min;
-            }
 
         }
 
@@ -508,6 +489,7 @@ class ControllerModule: public yarp::os::RFModule, public yarp::os::Thread
     bool close() override {
 
         do_graphs();
+        yInfo()<<"Graphs done";
 
         for (auto& i:ipos) {
             i->stop();
@@ -529,8 +511,6 @@ class ControllerModule: public yarp::os::RFModule, public yarp::os::Thread
         myfile.close();
         myFile1.close();
         myFile2.close();
-
-        yInfo()<<"Graphs done";
 
         return true;
     }
@@ -645,7 +625,22 @@ class ControllerModule: public yarp::os::RFModule, public yarp::os::Thread
             }
         }
 
-        if (puck_tracked){
+        if (puck_tracked && v > 70 && puck_velocity > 0){
+
+            puck_rf = projectToRobotSpace(u, v);
+
+            std::cout << "Puck tracked: " << puck_rf[0]<<" "<<puck_rf[1]<<" "<<puck_rf[2]<<std::endl;
+
+            static double t0 = yarp::os::Time::now();
+            myFile1<<u<<","<<yarp::os::Time::now()-t0<<","<<std::endl;
+            myFile2<<puck_rf[1]<<","<<yarp::os::Time::now()-t0<<","<<std::endl;
+
+            target[0] = puck_rf[1];
+
+            if (target[0]>y_max)
+                target[0]=y_max;
+            if (target[0]<y_min)
+                target[0]=y_min;
 
 //            double t_max, t_min;
 //            t_max = 1.5; t_min = 0.5;
@@ -669,7 +664,7 @@ class ControllerModule: public yarp::os::RFModule, public yarp::os::Thread
 
             std::cout << "TARGET y=" << target[0] << std::endl;
 
-            double pos_minjerk = genLinTraj.getPos();
+//            double pos_minjerk = genLinTraj.getPos();
 
             genLinTraj.computeCoeff(target[0]);
 
@@ -691,6 +686,8 @@ class ControllerModule: public yarp::os::RFModule, public yarp::os::Thread
                 pos_head[i] = interp[pos_torso.size() + pos_arm.size() + i]->operator()(genLinTraj.getPos());
             }
             iposd[2]->setPositions(pos_head.data());
+
+//            std::cout << "TIMEEEEEEEEEEEEEEE: "<<yarp::os::Time::now() - sending_time <<std::endl;
 
             std::vector<double> encs_head = readFromEncoders(2);
             yarp::os::Bottle &headJoints_bottle = headJointsPort.prepare();

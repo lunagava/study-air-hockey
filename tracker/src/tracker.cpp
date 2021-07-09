@@ -192,6 +192,7 @@ void trackerModule::run() {
                 pos_Obj.addInt(0);
                 pos_Obj.addInt(0);
                 pos_Obj.addDouble(0);
+                pos_Obj.addDouble(yarp::os::Time::now());
 //            cout << "NOT tracked" << endl;
             }
         }
@@ -262,7 +263,6 @@ void trackerModule::run() {
         }
 
         posObj_port.write();
-
 //        m.unlock();
     }
 }
@@ -317,7 +317,7 @@ std::tuple<double, double, double, double, double, double> trackerModule::comput
     double m00 = qROI.q.size();
     int m10 = 0, m01 = 0;
     double m11 = 0, m20 = 0, m02 = 0;
-    double time_sum, mean_time;
+    double time_sum = 0, mean_time = 0;
     for (auto i = 0; i < m00; i++) {
 
 //        yarp::sig::PixelBgr &ePix = trackMap.pixel(qROI.q[i].x,qROI.q[i].y);
@@ -335,6 +335,8 @@ std::tuple<double, double, double, double, double, double> trackerModule::comput
         m02 += pow(qROI.q[i].y, 2.0);
 
     }
+
+    std::cout<<"Time sum: "<<time_sum<<std::endl;
 
     mean_time = time_sum/m00;
 
@@ -444,12 +446,14 @@ cv::Point2d trackerModule::compute_vel(std::deque<cv::Point2d> points)
 }
 
 double trackerModule::getPeriod() {
-    return 0.01; //30 Hz
+    return 0.033; //30 Hz
 }
 
 bool trackerModule::updateModule() {
 
 //    std::cout << "--------------------- UPDATE ------------------------"<<std::endl;
+
+    posObj_port.write();
 
     if (tracking)
     {
@@ -497,12 +501,12 @@ bool trackerModule::updateModule() {
             cv::rectangle(trackImg, cv::Point(leftRect_next, bottomRect_next), cv::Point(rightRect_next, topRect_next),
                           cv::Scalar(0, 255, 0), 1, 8, 0); // print ROI box
             cv::rectangle(trackImg, cv::Point(left_ROI_predicted, bottom_ROI_predicted), cv::Point(right_ROI_predicted, top_ROI_predicted),
-                          cv::Scalar(255, 0, 0), 1, 8, 0); // print ROI box
-            cv::circle(trackImg, nextROI_COM, 1, cv::Scalar(255, 0, 0), -1, 8, 0);
+                          cv::Scalar(229, 132, 249), 1, 8, 0); // print ROI box
+            cv::circle(trackImg, nextROI_COM, 1, cv::Scalar(229, 132, 249), -1, 8, 0);
 //            cout << "ELLIPSE: "<< l << " "<<w<<endl;
             cv::ellipse(trackImg, COM, cv::Size(1.8*x_dev, 1.8*y_dev), 0, 0, 360, cv::Scalar(0, 255,
                                                                                              255), 1, 8, 0); // print ROI ellipse
-            cv::circle(trackImg, COM, 1, cv::Scalar(0, 0, 255), -1, 8, 0);
+            cv::circle(trackImg, COM, 1, cv::Scalar(0, 255, 0), -1, 8, 0);
         }
 
         // hand
