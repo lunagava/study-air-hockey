@@ -116,9 +116,9 @@ public:
         if (v.x < roi[0] || v.x > roi[1] || v.y < roi[2] || v.y > roi[3]) {
             return 0;
         }
-        if (v.x>roi_hand[0] && v.x<roi_hand[1] && v.y>roi_hand[2] && v.y<roi_hand[3]) {
-            return 0;
-        }
+//        if (v.x>roi_hand[0] && v.x<roi_hand[1] && v.y>roi_hand[2] && v.y<roi_hand[3]) {
+//            return 0;
+//        }
 
         q.push_front(v);
 
@@ -173,7 +173,7 @@ private:
     vReadPort<vector<AE> > input_port;
     vWritePort output_port;
     BufferedPort<yarp::sig::ImageOf<yarp::sig::PixelBgr> > image_out;
-    BufferedPort<Bottle> posObj_port;
+    BufferedPort<Bottle> posObj_port, gt_port;
     BufferedPort<Bottle> hand_location;
 
     std::ofstream myfile;
@@ -237,9 +237,18 @@ private:
     double COM_timestamp;
 
     std::vector<double> hand_roi;
+    std::vector<std::vector<double>> line;
+    int row;
+    double u_gt,v_gt,ts_gt, track_flag;
+
+    double sigmaEllx, sigmaElly, sigmaAx, sigmaAy, sigmaBx, sigmaBy;
+    yarp::sig::Matrix weights_filter;
+    double filtered_xCoM, filtered_yCoM;
+    cv::Point index_max;
 
     void resetTracker();
     double SeriesInverseError20thOrder(const double x);
+    std::vector<std::vector<double>> read_ground_truth();
     auto readTable();
     double compute_std(roiq qROI, cv::Point avg);
     std::tuple <double, double> compute_stdev(roiq qROI, cv::Point avg);
@@ -247,7 +256,9 @@ private:
     std::tuple <double, double, double> ellipseParam(double m00, double m10, double m01, double m11, double m20, double m02);
     std::tuple<double, double> leastSquare(std::deque<cv::Point2d> points);
     cv::Point2d compute_vel(std::deque<cv::Point2d> points);
-
+    yarp::sig::Matrix gaus2d(yarp::sig::Matrix x, yarp::sig::Matrix y, double mx, double my, double sx, double sy);
+    yarp::sig::Matrix compute_dog(int N, double m1x, double m1y, double s1x, double s1y, double m2x, double m2y, double s2x, double s2y, int roi_width, int roi_height);
+    std::tuple<double, double> weighted_CoM(roiq qROI, yarp::sig::Matrix ki, int roi_left, int roi_top, int roi_right, int roi_bottom);
 
 protected:
 

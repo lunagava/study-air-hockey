@@ -17,6 +17,7 @@
  */
 
 #include <tracker.h>
+#include <yarp/math/Math.h>
 
 using namespace ev;
 using namespace cv;
@@ -89,6 +90,9 @@ bool trackerModule::configure(yarp::os::ResourceFinder &rf) {
     if (!hand_location.open(getName() + "/handPos:i"))
         return false;
 
+    if (!gt_port.open(getName() + "/gt:i"))
+        return false;
+
     if (!image_out.open(getName() + "/image:o")) {
         yError() << "Can't open output image port for visualization";
         return false;
@@ -113,6 +117,9 @@ bool trackerModule::configure(yarp::os::ResourceFinder &rf) {
         yError()<<"Could not open file for printing COMs";
         return -1;
     }
+
+    line = read_ground_truth();
+    row = 0;
 
     return Thread::start();
 }
@@ -177,9 +184,6 @@ void trackerModule::run() {
         COM.x = m10;
         COM.y = m01;
 
-        Bottle &pos_Obj = posObj_port.prepare();
-        pos_Obj.clear();
-
         if (!tracking) {
 
             std = compute_std(qROI, COM);
@@ -187,13 +191,6 @@ void trackerModule::run() {
             if (k * std < 80) {
                 tracking = true;
                 prev_t = yarp::os::Time::now();
-            } else{
-                pos_Obj.addInt(0);
-                pos_Obj.addInt(0);
-                pos_Obj.addInt(0);
-                pos_Obj.addDouble(0);
-                pos_Obj.addDouble(yarp::os::Time::now());
-//            cout << "NOT tracked" << endl;
             }
         }
 
@@ -206,6 +203,21 @@ void trackerModule::run() {
                 widthROI = factor * x_dev;
                 heightROI = factor * y_dev;
             }
+
+            // --------------------------------- DoG filter ---------------------------------------------
+            sigmaEllx = 1.8*x_dev;
+            sigmaElly = 1.8*y_dev;
+            sigmaAx = sigmaEllx/2;
+            sigmaAy = sigmaElly/2;
+            sigmaBx = sigmaEllx/4;
+            sigmaBy = sigmaElly/4;
+
+            weights_filter = compute_dog(100, (qROI.getROI()[1]-qROI.getROI()[0])/2, (qROI.getROI()[3]-qROI.getROI()[2])/2, sigmaAx, sigmaAy, (qROI.getROI()[1]-qROI.getROI()[0])/2, (qROI.getROI()[3]-qROI.getROI()[2])/2, sigmaBx, sigmaBy, (qROI.getROI()[1]-qROI.getROI()[0]), (qROI.getROI()[3]-qROI.getROI()[2]));
+
+            std::tie(filtered_xCoM, filtered_yCoM) = weighted_CoM(qROI, weights_filter, qROI.getROI()[0], qROI.getROI()[2], qROI.getROI()[1], qROI.getROI()[3]);
+            std::cout<<"Filtered COM: ("<<filtered_xCoM<<","<<filtered_yCoM<<")"<<std::endl;
+
+            // --------------------------------- DoG filter ---------------------------------------------
 
             if (widthROI>max_widthROI)
                 widthROI=max_widthROI;
@@ -229,40 +241,15 @@ void trackerModule::run() {
 
 //            std::cout<<"recalculated queue size: "<<n_mass<<std::endl;
 
-            if (COM_history.size()>3){
-                COM_history.push_front(COM);
-                COM_history.pop_back();
-
-                velocity = compute_vel(COM_history);
-                nextROI_COM = cv::Point(COM.x + velocity.x, COM.y + velocity.y);
-
-                left_ROI_predicted = nextROI_COM.x - widthROI;
-                right_ROI_predicted = nextROI_COM.x + widthROI;
-                bottom_ROI_predicted = nextROI_COM.y - heightROI;
-                top_ROI_predicted = nextROI_COM.y + heightROI;
-
-//                ROI = qROI.setROI(left_ROI_predicted, right_ROI_predicted, bottom_ROI_predicted, top_ROI_predicted);
-            }
-            else{
-                COM_history.push_front(COM);
-            }
-
-            std::cout<<"m00: "<<qROI.q.size()<<std::endl;
-            std::cout<< "actual COM: ("<<COM.x<<", "<<COM.y<<", "<<COM_timestamp<<")"<<std::endl;
-            std::cout<< "VELOCITY: ("<<velocity.x<<", "<<velocity.y<<")"<<std::endl;
-            std::cout<< "next COM: ("<<nextROI_COM.x<<", "<<nextROI_COM.y<<")"<<std::endl;
+//            std::cout<<"m00: "<<qROI.q.size()<<std::endl;
+//            std::cout<< "actual COM: ("<<COM.x<<", "<<COM.y<<", "<<COM_timestamp<<")"<<std::endl;
+//            std::cout<< "VELOCITY: ("<<velocity.x<<", "<<velocity.y<<")"<<std::endl;
+//            std::cout<< "next COM: ("<<nextROI_COM.x<<", "<<nextROI_COM.y<<")"<<std::endl;
 
             prev_t = yarp::os::Time::now();
 
-            pos_Obj.addInt(COM.x);
-            pos_Obj.addInt(COM.y);
-            pos_Obj.addInt(1);
-            pos_Obj.addDouble(velocity.y);
-//            cout << "tracked" << "(" << COM.x << " , " << COM.y << ")" << endl;
-
         }
 
-        posObj_port.write();
 //        m.unlock();
     }
 }
@@ -276,6 +263,154 @@ void trackerModule::resetTracker() {
     COM_history.clear();
 
     tracking = false;
+}
+
+yarp::sig::Matrix trackerModule::gaus2d(yarp::sig::Matrix x, yarp::sig::Matrix y, double mx, double my, double sx, double sy){
+
+    yarp::sig::Matrix Gxy;
+
+    Gxy = yarp::math::zeros(x.rows(), x.cols());
+
+    for (auto r=0; r<x.rows(); r++){
+        for(auto c=0; c<x.cols(); c++){
+            Gxy(r,c) = 1 / (2 * M_PI * sx * sy) * exp(-((c-mx)*(c-mx) / (2 * sx * sx) + (r - my)*(r-my) / (2 * sy*sy)));
+        }
+    }
+
+    return Gxy;
+}
+
+yarp::sig::Matrix trackerModule::compute_dog(int N, double m1x, double m1y, double s1x, double s1y, double m2x, double m2y, double s2x, double s2y, int roi_width, int roi_height){
+
+    yarp::sig::Matrix x_values, y_values, g1, g2, dog;
+
+    x_values = yarp::math::zeros(roi_width+1, roi_height+1);
+    y_values = yarp::math::zeros(roi_width+1, roi_height+1);
+
+//    std::cout << "x_values before= "<<std::endl;
+//    for (auto i=0; i<x_values.rows(); i++){
+//        for (auto j=0; j<x_values.cols(); j++) {
+//            std::cout << x_values(i, j)<<",";
+//        }
+//        std::cout<<std::endl;
+//    }
+
+//    double y_value;
+//    y_value = -5.0;
+//    for (auto i=0; i<N+1; i++){
+//        double x_value = -5.0;
+//        for (auto j=0; j<N+1; j++) {
+//            x_values(i,j) = x_value;
+//            x_value += 10.0/N;
+//
+//            y_values(i,j) = y_value;
+//        }
+//        y_value += 10.0/N;
+//    }
+
+//    std::cout << "x_values= "<<std::endl;
+//    for (auto i=0; i<x_values.rows(); i++){
+//        for (auto j=0; j<x_values.cols(); j++) {
+//            std::cout << x_values(i, j)<<",";
+//        }
+//        std::cout<<std::endl;
+//    }
+//
+//    std::cout << "y_values= "<<std::endl;
+//    for (auto i=0; i<y_values.rows(); i++){
+//        for (auto j=0; j<y_values.cols(); j++) {
+//            std::cout << y_values(i, j)<<",";
+//        }
+//        std::cout<<std::endl;
+//    }
+
+    g1 = yarp::math::zeros(x_values.rows(), x_values.cols());
+    g2 = yarp::math::zeros(x_values.rows(), x_values.cols());
+
+    g1 = gaus2d(x_values, y_values, m1x, m1y, sigmaAx, sigmaAy);
+    g2 = gaus2d(x_values, y_values, m2x, m2y, sigmaBx, sigmaBy);
+
+//    std::cout << "g1= "<<std::endl;
+//    for (auto i=0; i<g1.rows(); i++){
+//        for (auto j=0; j<g1.cols(); j++) {
+//            std::cout << g1(i, j)<<",";
+//        }
+//        std::cout<<std::endl;
+//    }
+//
+//    std::cout << "g2= "<<std::endl;
+//    for (auto i=0; i<g1.rows(); i++){
+//        for (auto j=0; j<g1.cols(); j++) {
+//            std::cout << g2(i, j)<<",";
+//        }
+//        std::cout<<std::endl;
+//    }
+
+    dog = yarp::math::zeros(g1.rows(), g1.cols());
+
+    double maxElement = -100;
+
+    for (auto r=0; r<g1.rows(); r++){
+        for(auto c=0; c<g1.cols(); c++){
+
+            dog(r,c) = std::max(g1(r,c)/g1(m1x, m1y) - g2(r,c)/g2(m2x, m2y),0.0);
+            if (dog(r,c) > maxElement) {
+                maxElement = dog(r,c);
+                index_max = cv::Point (r,c);
+            }
+        }
+    }
+
+    std::cout<<"Peak DoG: "<<index_max<<"--> max: "<<maxElement<<std::endl;
+
+//    std::cout << "dog= "<<std::endl;
+//    for (auto i=0; i<dog.rows(); i++){
+//        for (auto j=0; j<dog.cols(); j++) {
+//            std::cout << dog(i, j)<<",";
+//        }
+//        std::cout<<std::endl;
+//    }
+
+    // normalize dog
+    for (auto r=0; r<g1.rows(); r++){
+        for(auto c=0; c<g1.cols(); c++){
+            dog(r,c) = dog(r,c)/maxElement;
+        }
+    }
+
+//    std::cout << "normalized dog= "<<std::endl;
+//    for (auto i=0; i<dog.rows(); i++){
+//        for (auto j=0; j<dog.cols(); j++) {
+//            std::cout << dog(i, j)<<",";
+//        }
+//        std::cout<<std::endl;
+//    }
+
+    return dog;
+}
+
+std::vector<std::vector<double>> trackerModule::read_ground_truth(){
+    std::ifstream in("/code/luna/study-air-hockey/src/COM.csv");
+    std::vector<std::vector<double>> fields;
+
+    if (in) {
+        std::string line;
+
+        while (getline(in, line)) {
+            std::stringstream sep(line);
+            std::string field;
+
+            fields.push_back(std::vector<double>());
+
+            while (getline(sep, field, ',')) {
+                fields.back().push_back(stod(field));
+            }
+        }
+    }
+
+    in.close();
+
+    return fields;
 }
 
 double trackerModule::SeriesInverseError20thOrder(const double x){
@@ -336,7 +471,7 @@ std::tuple<double, double, double, double, double, double> trackerModule::comput
 
     }
 
-    std::cout<<"Time sum: "<<time_sum<<std::endl;
+//    std::cout<<"Time sum: "<<time_sum<<std::endl;
 
     mean_time = time_sum/m00;
 
@@ -345,6 +480,33 @@ std::tuple<double, double, double, double, double, double> trackerModule::comput
     m01 = m01 / m00;
 
     return std::make_tuple(m10, m01, m11, m20, m02, mean_time);
+}
+
+std::tuple<double, double> trackerModule::weighted_CoM(roiq qROI, yarp::sig::Matrix ki, int roi_left, int roi_top, int roi_right, int roi_bottom) {
+
+    double xCoM_filtered, yCoM_filtered;
+    double m00 = qROI.q.size();
+    double weights_sum = 0;
+//    std::cout << "num events: "<<m00<<std::endl;
+    for (auto i = 0; i < m00; i++) {
+
+        if (qROI.q[i].x > roi_left &&  qROI.q[i].x < roi_right && qROI.q[i].y > roi_top &&  qROI.q[i].y < roi_bottom) {
+            if (roi_left<0)
+                roi_left = 0;
+            if (roi_top<0)
+                roi_top = 0;
+
+            xCoM_filtered += qROI.q[i].x * ki(qROI.q[i].x - roi_left, qROI.q[i].y - roi_top); // sum of coord x of events within the ROI
+            yCoM_filtered += qROI.q[i].y * ki(qROI.q[i].x - roi_left, qROI.q[i].y - roi_top); // sum of coord y of events within the ROI
+
+            weights_sum += ki(qROI.q[i].x - roi_left, qROI.q[i].y - roi_top);
+        }
+    }
+
+    xCoM_filtered = xCoM_filtered / weights_sum;
+    yCoM_filtered = yCoM_filtered / weights_sum;
+
+    return std::make_tuple(xCoM_filtered, yCoM_filtered);
 }
 
 std::tuple<double, double, double>
@@ -446,14 +608,41 @@ cv::Point2d trackerModule::compute_vel(std::deque<cv::Point2d> points)
 }
 
 double trackerModule::getPeriod() {
-    return 0.033; //30 Hz
+    return 0.01;
 }
 
 bool trackerModule::updateModule() {
 
 //    std::cout << "--------------------- UPDATE ------------------------"<<std::endl;
 
-    posObj_port.write();
+    if (COM_history.size()>5){
+        COM_history.push_front(COM);
+        COM_history.pop_back();
+        velocity = compute_vel(COM_history);
+        nextROI_COM = cv::Point(COM.x + velocity.x, COM.y + velocity.y);
+
+        left_ROI_predicted = nextROI_COM.x - widthROI;
+        right_ROI_predicted = nextROI_COM.x + widthROI;
+        bottom_ROI_predicted = nextROI_COM.y - heightROI;
+        top_ROI_predicted = nextROI_COM.y + heightROI;
+
+//                ROI = qROI.setROI(left_ROI_predicted, right_ROI_predicted, bottom_ROI_predicted, top_ROI_predicted);
+    }
+    else{
+        COM_history.push_front(COM);
+    }
+
+    if (tracking){
+        Bottle &pos_Obj = posObj_port.prepare();
+        pos_Obj.clear();
+        pos_Obj.addInt(COM.x);
+        pos_Obj.addInt(COM.y);
+        pos_Obj.addInt(1);
+        pos_Obj.addDouble(velocity.y);
+
+        //            cout << "tracked" << "(" << COM.x << " , " << COM.y << ")" << endl;
+        posObj_port.write();
+    }
 
     if (tracking)
     {
@@ -465,26 +654,24 @@ bool trackerModule::updateModule() {
                     << " seconds.--------------------------------------------------";
             resetTracker();
         }
-
-        myfile << COM.x << ","<< COM.y << ","<< COM_timestamp <<","<<std::endl;
     }
 
-    Bottle *bottle_hand_location = hand_location.read();
-    y_hand_position = bottle_hand_location->get(0).asDouble();
-    x_hand_pixel = bottle_hand_location->get(1).asDouble();
-    y_hand_pixel = bottle_hand_location->get(2).asDouble();
-
-    std::cout<<"u HAND: "<<x_hand_pixel<<std::endl;
-    std::cout<<"v HAND: "<<y_hand_pixel<<std::endl;
-    std::cout<<"Y CARTESIAN HAND: "<<y_hand_position<<std::endl;
-
-    std::vector<double> hand_roi(6);
-    for (size_t i = 0; i < hand_roi.size(); i++) {
-        hand_roi[i] = interp[i]->operator()(y_hand_position);
-    }
-
-    qROI.setROI_hand(hand_roi[2], hand_roi[3],hand_roi[4], hand_roi[5]);
-    qROI.remove_handEvents();
+//    Bottle *bottle_hand_location = hand_location.read();
+//    y_hand_position = bottle_hand_location->get(0).asDouble();
+//    x_hand_pixel = bottle_hand_location->get(1).asDouble();
+//    y_hand_pixel = bottle_hand_location->get(2).asDouble();
+//
+//    std::cout<<"u HAND: "<<x_hand_pixel<<std::endl;
+//    std::cout<<"v HAND: "<<y_hand_pixel<<std::endl;
+//    std::cout<<"Y CARTESIAN HAND: "<<y_hand_position<<std::endl;
+//
+//    std::vector<double> hand_roi(6);
+//    for (size_t i = 0; i < hand_roi.size(); i++) {
+//        hand_roi[i] = interp[i]->operator()(y_hand_position);
+//    }
+//
+//    qROI.setROI_hand(hand_roi[2], hand_roi[3],hand_roi[4], hand_roi[5]);
+//    qROI.remove_handEvents();
 
     if (visualization) {
 //        m.lock();
@@ -500,22 +687,26 @@ bool trackerModule::updateModule() {
             // puck
             cv::rectangle(trackImg, cv::Point(leftRect_next, bottomRect_next), cv::Point(rightRect_next, topRect_next),
                           cv::Scalar(0, 255, 0), 1, 8, 0); // print ROI box
-            cv::rectangle(trackImg, cv::Point(left_ROI_predicted, bottom_ROI_predicted), cv::Point(right_ROI_predicted, top_ROI_predicted),
-                          cv::Scalar(229, 132, 249), 1, 8, 0); // print ROI box
-            cv::circle(trackImg, nextROI_COM, 1, cv::Scalar(229, 132, 249), -1, 8, 0);
+//            cv::rectangle(trackImg, cv::Point(left_ROI_predicted, bottom_ROI_predicted), cv::Point(right_ROI_predicted, top_ROI_predicted),
+//                          cv::Scalar(229, 132, 249), 1, 8, 0); // print ROI box
+//            cv::circle(trackImg, nextROI_COM, 1, cv::Scalar(229, 132, 249), -1, 8, 0);
 //            cout << "ELLIPSE: "<< l << " "<<w<<endl;
             cv::ellipse(trackImg, COM, cv::Size(1.8*x_dev, 1.8*y_dev), 0, 0, 360, cv::Scalar(0, 255,
                                                                                              255), 1, 8, 0); // print ROI ellipse
             cv::circle(trackImg, COM, 1, cv::Scalar(0, 255, 0), -1, 8, 0);
+            cv::circle(trackImg, cv::Point(filtered_xCoM, filtered_yCoM), 1, cv::Scalar(255, 0, 255), -1, 8, 0);
+
+
+//            cv::circle(trackImg, cv::Point2d(u,v), 3, cv::Scalar(229, 132, 249), -1, 8, 0);
         }
 
         // hand
-        cv::circle(trackImg, cv::Point2d(hand_roi[0], hand_roi[1]), 3, cv::Scalar(255, 255, 0), -1, 8,
-                   0);
-        cv::rectangle(trackImg,
-                      cv::Point(hand_roi[2], hand_roi[4]),
-                      cv::Point(hand_roi[3], hand_roi[5]), cv::Scalar(255, 255, 0),
-                      1, 8, 0); // print ROI box
+//        cv::circle(trackImg, cv::Point2d(hand_roi[0], hand_roi[1]), 3, cv::Scalar(255, 255, 0), -1, 8,
+//                   0);
+//        cv::rectangle(trackImg,
+//                      cv::Point(hand_roi[2], hand_roi[4]),
+//                      cv::Point(hand_roi[3], hand_roi[5]), cv::Scalar(255, 255, 0),
+//                      1, 8, 0); // print ROI box
 
         image_out.write();
 //        m.unlock();
