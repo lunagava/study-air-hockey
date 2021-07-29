@@ -47,6 +47,9 @@
 #include <yarp/sig/Matrix.h>
 #include <yarp/math/Math.h>
 #include <yarp/os/all.h>
+#include <event-driven/all.h>
+
+using namespace ev;
 
 namespace plt = matplotlibcpp;
 
@@ -70,36 +73,30 @@ class ControllerModule: public yarp::os::RFModule, public yarp::os::Thread
     double y_min, y_max;
     int whichImagePlane;
 
-    bool first;
-    double artificial_y_pos_puck, artificial_y_pos_puck_prec;
-    int direction;
-    std::vector<double> head_yaw, y_range, xpos, zpos, x_ee, y_ee, z_ee, x_des, y_des, z_des, elapsed_time;
     int u,v, puck_tracked;
+    double pix_stamp;
     yarp::sig::Vector puck_rf{0.,0.,0.};
     std::vector<double> fingers_posture;
-    std::ofstream myfile;
-    typedef std::tuple <double, double> my_tuple;
-    std::vector<my_tuple> head_status, xpos_status, zpos_status;
     std::string which_arm, robot;
-    int test;
-    bool artificial;
-    double target_prec;
     double velTraj;
-    bool wait_time;
-    double holdon_time;
-    double t0_max, t0_min;
 
     std::ofstream myFile1, myFile2;
-    double puck_velocity, sending_time;
+    double puck_velocity;
 
+    deque<LabelledAE> out_queue;
+    LabelledAE ev;
+
+    vWritePort output_port;
     yarp::os::BufferedPort<yarp::os::Bottle> targetPort;
-    yarp::os::BufferedPort<yarp::os::Bottle> headPort, yposPort, puckPort, hand_pix_port, headJointsPort;
+    yarp::os::BufferedPort<yarp::os::Bottle> yposPort, puckPort, hand_pix_port;
     yarp::os::RpcServer handlerPort;
 
-    std::shared_ptr<iCub::ctrl::minJerkTrajGen> reference;
     linearTraj genLinTraj;
 
-    yarp::sig::Vector target{0.};
+    double target;
+    bool reached;
+
+    bool mobility_condition;
 
     /********************************************************************/
     void helperOpenDevice(const int i, const std::string& device_name) {
@@ -108,7 +105,7 @@ class ControllerModule: public yarp::os::RFModule, public yarp::os::Thread
         options.put("remote", "/"+ robot +"/" + device_name);
         options.put("local", getName()+"/" + device_name);
         drv[i].open(options);
-        
+
         yarp::dev::IControlMode* imod;
         yarp::dev::IControlLimits* ilim;
         drv[i].view(ipos[i]);
@@ -206,24 +203,6 @@ class ControllerModule: public yarp::os::RFModule, public yarp::os::Thread
         return false;
     }
 
-    std::vector<double> readFromEncoders(int i){
-        int joints;
-        ipos[i]->getAxes(&joints);
-        std::vector<double> encs(joints, 0.);
-        ienc->getEncoders(encs.data());
-
-        return encs;
-    }
-
-    double incrementOutput(int dir, double y_cart)
-    {
-
-        double incremental_factor=0.04;
-        y_cart += incremental_factor * dir; // 5cm
-
-        return y_cart;
-    }
-
     yarp::sig::Vector projectToVisualSpace(const yarp::sig::Vector robPos){
         yarp::sig::Vector imagePos;
         imagePos.resize(2);
@@ -254,90 +233,9 @@ class ControllerModule: public yarp::os::RFModule, public yarp::os::Thread
         return puckPos_rob;
     }
 
-    std::vector<std::tuple <double, double>> sortbyfirst(std::vector<std::tuple <double, double>> tuple){
-
-        std::sort(begin(tuple), end(tuple)); //sort by first element
-        return tuple;
-    }
-
-    static auto sortbysec(const std::tuple<double, double>& a,
-                   const std::tuple<double, double>& b)
-    {
-        return (std::get<1>(a) < std::get<1>(b));
-    }
-
-    std::tuple<std::vector<double>, std::vector<double>> extract_tuple(std::vector<my_tuple> tuple){
-
-        std::vector<double> first_element, second_element;
-
-        for (auto entry = tuple.begin(); entry != tuple.end(); entry++) {
-            first_element.push_back(std::get<0>(*entry));
-            second_element.push_back(std::get<1>(*entry));
-        }
-
-        return std::make_tuple(first_element,second_element);
-    }
-
-    void do_graphs(){
-
-        sortbyfirst(head_status);
-        sortbyfirst(xpos_status);
-        sortbyfirst(zpos_status);
-
-        std::tie (y_range, head_yaw)=extract_tuple(head_status);
-        std::tie (y_range, xpos)=extract_tuple(xpos_status);
-        std::tie (y_range, zpos)=extract_tuple(zpos_status);
-
-        plt::figure(1);
-        plt::plot(y_range, head_yaw, "r-");
-        plt::title("Head yaw wrt torso yaw");
-        plt::xlabel("y [m]"); plt::ylabel("[deg]");
-        plt::save("head_y_pos"+std::to_string(y_min)+"<y<"+std::to_string(y_max)+".svg");
-
-        plt::figure(2);
-        plt::plot(y_range, xpos, "r-");
-        plt::title("x position");
-        plt::xlabel("y [m]"); plt::ylabel("x [m]");
-        plt::save("x_pos_y_pos"+std::to_string(y_min)+"<y<"+std::to_string(y_max)+".svg");
-
-        plt::figure(3);
-        plt::plot(y_range, zpos, "r-");
-        plt::title("z position");
-        plt::xlabel("y [m]"); plt::ylabel("z [m]");
-        plt::save("z_pos_y_pos"+std::to_string(y_min)+"<y<"+std::to_string(y_max)+".svg");
-
-        plt::figure(4);
-        plt::named_plot("actual",elapsed_time, z_ee, "b-");
-        plt::named_plot("desired",elapsed_time, z_des, "k-");
-        plt::title("z position");
-        plt::xlabel("Time [s]"); plt::ylabel("z[m]");
-        plt::legend();
-        plt::save("z_pos_time"+std::to_string(y_min)+"<y<"+std::to_string(y_max)+".svg");
-
-        plt::figure(5);
-        plt::named_plot("actual",elapsed_time, y_ee, "g-");
-        plt::named_plot("desired",elapsed_time, y_des, "k-");
-        plt::title("y position");
-        plt::xlabel("Time [s]"); plt::ylabel("y[m]");
-        plt::legend();
-        plt::save("y_pos_time"+std::to_string(y_min)+"<y<"+std::to_string(y_max)+".svg");
-
-        plt::figure(6);
-        plt::named_plot("actual",elapsed_time, x_ee, "r-");
-        plt::named_plot("desired",elapsed_time, x_des, "k-");
-        plt::title("x position");
-        plt::xlabel("Time [s]"); plt::ylabel("x[m]");
-        plt::legend();
-        plt::save("x_pos_time"+std::to_string(y_min)+"<y<"+std::to_string(y_max)+".svg");
-
-    }
-
     /********************************************************************/
     bool configure(yarp::os::ResourceFinder& rf) override {
         table_file = rf.findFile("table-file");
-        const auto T = std::abs(rf.check("T", yarp::os::Value(1.)).asDouble());
-        test = rf.check("test", yarp::os::Value(1)).asInt();
-        artificial = rf.check("artificial", yarp::os::Value(true)).asBool();
         velTraj= rf.check("vel", yarp::os::Value(0.3)).asDouble();
         whichImagePlane = rf.check("camera", yarp::os::Value(0)).asInt(); // 0 for left and 1 for right
         y_min = rf.check("y_min", yarp::os::Value(-0.12)).asDouble();
@@ -376,27 +274,10 @@ class ControllerModule: public yarp::os::RFModule, public yarp::os::Thread
         drv_gaze.view(gaze);
 
         targetPort.open(getName() + "/target");
-        headPort.open(getName() + "/head");
         yposPort.open(getName() + "/ypos");
         puckPort.open(getName() + "/puck");
         hand_pix_port.open(getName() + "/hand-pixels");
-        headJointsPort.open(getName()+"/head-joints");
 
-        // 1) initial value of the trajectory.
-        // 2) sample time in seconds.
-        // 3) trajectory reference time (90% of steady-state value in t=_T, transient extinguished for t>=1.5*_T).
-        reference = std::make_shared<iCub::ctrl::minJerkTrajGen>(target, getPeriod(), T);
-
-        first=true;
-
-        myfile.open("head.txt");
-        if (!myfile.is_open())
-        {
-            yError()<<"Could not open file for printing head yaw wrt torso yaw";
-            return 0;
-        }
-
-        target_prec=0;
         genLinTraj.init(velTraj, getPeriod());
 
         // rpc = remote procedure call
@@ -408,8 +289,6 @@ class ControllerModule: public yarp::os::RFModule, public yarp::os::Thread
 
         // attach the callback respond()
         attach(handlerPort);
-
-        wait_time=true;
 
         myFile1.open("/code/luna/study-air-hockey/COM_pix.csv");
         if (!myFile1.is_open())
@@ -425,27 +304,28 @@ class ControllerModule: public yarp::os::RFModule, public yarp::os::Thread
             return -1;
         }
 
+        if(!output_port.open(getName() + "/LAE:o"))
+            return false;
+
         return Thread::start();
     }
 
     void run() {
 
-        std::cout << "inside RUN"<<std::endl;
+//        std::cout << "inside RUN"<<std::endl;
 
         while (Thread::isRunning()) {
 
-            std::cout << "inside LOOP"<<std::endl;
-
+//            std::cout << "inside LOOP"<<std::endl;
             yarp::os::Bottle *b = puckPort.read();
             u = b->get(0).asInt(); // x coordinate of the pixel within the image plane
             v = b->get(1).asInt(); // y coordinate of the pixel within the image plane
-            puck_tracked = b->get(2).asInt(); //verify if the target is tracked or not
-            puck_velocity = b->get(3).asDouble(); // puck velocity along y
-//            sending_time =  b->get(4).asDouble();
-            std::cout << "u_puck = " << u << ", v_puck = " << v << ", tracked=" << puck_tracked <<", vel="<<puck_velocity<< std::endl;
+            pix_stamp = b->get(2).asInt();
+//            puck_tracked = b->get(2).asInt(); //verify if the target is tracked or not
+//            puck_velocity = b->get(3).asDouble(); // puck velocity along y
+            std::cout << "u_puck = " << u << ", v_puck = " << v << std::endl;
 
         }
-
     }
 
     bool respond(const yarp::os::Bottle &command, yarp::os::Bottle &reply)
@@ -488,9 +368,6 @@ class ControllerModule: public yarp::os::RFModule, public yarp::os::Thread
     /********************************************************************/
     bool close() override {
 
-        do_graphs();
-        yInfo()<<"Graphs done";
-
         for (auto& i:ipos) {
             i->stop();
         }
@@ -502,13 +379,11 @@ class ControllerModule: public yarp::os::RFModule, public yarp::os::Thread
         drv_gaze.close();
 
         targetPort.close();
-        headPort.close();
         yposPort.close();
         puckPort.close();
         hand_pix_port.close();
-        headJointsPort.close();
+        output_port.close();
 
-        myfile.close();
         myFile1.close();
         myFile2.close();
 
@@ -520,226 +395,98 @@ class ControllerModule: public yarp::os::RFModule, public yarp::os::Thread
         return 0.01;
     }
 
-    double randfrom(double min, double max)
-    {
-        double range = (max - min);
-        double div = RAND_MAX / range;
-        return min + (rand() / div);
-    }
-
     /********************************************************************/
     bool updateModule() override {
 
-        static double prevTime = yarp::os::Time::now();
+//        yarp::sig::Vector currentArmPos, currentArmOrient, hand_pix;
+//        arm->getPose(currentArmPos, currentArmOrient);
+//        hand_pix = projectToVisualSpace(currentArmPos);
+//
+////            std::cout << "u_hand:" << hand_pix[0] << ", v_hand:" << hand_pix[1] << std::endl;
+//
+//        // BOTTLE for printing the current u and v of the arm and of the puck in the visual space
+//        yarp::os::Bottle &hand_pix_bottle = hand_pix_port.prepare();
+//        hand_pix_bottle.clear();
+//        hand_pix_bottle.addDouble(currentArmPos[1]);
+//        hand_pix_bottle.addDouble(hand_pix[0]);
+//        hand_pix_bottle.addDouble(hand_pix[1]);
+//
+//        hand_pix_port.write();
 
-        if(test==1){
-            if (auto* b = targetPort.read(false)) {
-                const auto p = (b->get(0).asDouble() * (y_max - y_min) + (y_max + y_min)) / 2.;
-                target[0] = std::max(std::min(p, y_max), y_min); // to avoid going beyond the limits ymin and ymax
-            }
-            puck_tracked=true;
+        Stamp ystamp;
+        puckPort.getEnvelope(ystamp);
+
+        ev.ID = 0;
+        ev.x = u;
+        ev.y = v;
+        ev.stamp = pix_stamp/vtsHelper::tsscaler;
+        out_queue.push_back(ev);
+        output_port.write(out_queue, ystamp);
+        out_queue.clear();
+
+        puck_rf = projectToRobotSpace(u, v);
+
+//        if (puck_tracked && v>50 && puck_velocity>0) {
+
+//            mobility_condition = true;
+
+//                    static double t0 = yarp::os::Time::now();
+//                    myFile1 << u << "," << yarp::os::Time::now() - t0 << "," << std::endl;
+//                    myFile2 << puck_rf[1] << "," << yarp::os::Time::now() - t0 << "," << std::endl;
+
+        target = puck_rf[1];
+
+        std::cout<< "y TARGET: "<<puck_rf[1]<<std::endl;
+
+        if (target > y_max)
+            target = y_max;
+        if (target < y_min)
+            target = y_min;
+
+//        }
+//        else if (puck_tracked && puck_velocity<0){
+//            if (reached)
+//                target = 0;
+//        }
+//        else{
+//            mobility_condition=false;
+//        }
+
+        genLinTraj.computeCoeff(target);
+
+        std::vector<double> pos_torso(3);
+        for (size_t i = 0; i < pos_torso.size(); i++) {
+            pos_torso[pos_torso.size() - 1 - i] = interp[i]->operator()(genLinTraj.getPos());
         }
+        iposd[0]->setPositions(pos_torso.data());
 
-        if (test==2) {
-
-            if (artificial) {
-
-                std::cout<<genLinTraj.getPos()<<std::endl;
-
-//                if (target[0]==0)
-//                    target[0]=y_max;
-//
-//                if (genLinTraj.getPos()<=y_min){
-//
-//                    if (wait_time==true){
-//                        double t1_min = yarp::os::Time::now();
-//                        std::cout<<"Time to reach y min: "<<t1_min-t0_min<<std::endl;
-//                        holdon_time = yarp::os::Time::now();
-//                        wait_time=false;
-//                    }
-//
-//                    double currTime = yarp::os::Time::now();
-//
-//                    if (currTime - holdon_time > 2){
-//                        target[0]=y_max;
-//                        t0_max = yarp::os::Time::now();
-//                        wait_time=true;
-//                    }
-//                }
-//                else if (genLinTraj.getPos()>=y_max){
-//
-//                    if (wait_time==true){
-//                        double t1_max = yarp::os::Time::now();
-//                        std::cout<<"Time to reach y max: "<<t1_max-t0_max<<std::endl;
-//                        holdon_time = yarp::os::Time::now();
-//                        wait_time=false;
-//                    }
-//
-//                    double currTime = yarp::os::Time::now();
-//
-//                    if (currTime - holdon_time > 2) {
-//                        target[0] = y_min;
-//                        t0_min = yarp::os::Time::now();
-//                        wait_time=true;
-//                    }
-//                }
-
-// RANDOM GENERATOR
-
-                if (target[0]==0){
-                    target[0] = randfrom(y_min, y_max);
-                    holdon_time=yarp::os::Time::now();
-                }
-
-                double currTime = yarp::os::Time::now();
-
-                if (currTime-holdon_time>1){
-                    target_prec=target[0];
-                    target[0] = randfrom(y_min, y_max);
-                    holdon_time=yarp::os::Time::now();
-                }
-
-
-            } else {
-
-                yarp::sig::Vector currentArmPos, currentArmOrient, hand_pix;
-                arm->getPose(currentArmPos, currentArmOrient);
-                hand_pix = projectToVisualSpace(currentArmPos);
-
-                std::cout << "u_hand:" << hand_pix[0] << ", v_hand:" << hand_pix[1] << std::endl;
-
-                // BOTTLE for printing the current u and v of the arm and of the puck in the visual space
-                yarp::os::Bottle &hand_pix_bottle = hand_pix_port.prepare();
-                hand_pix_bottle.clear();
-                hand_pix_bottle.addDouble(currentArmPos[1]);
-                hand_pix_bottle.addDouble(hand_pix[0]);
-                hand_pix_bottle.addDouble(hand_pix[1]);
-                //        // communicate if the hand is present in the image plane
-                //        if (hand_pix[0]>0 && hand_pix[0]<304 && hand_pix[1]>0 && hand_pix[1]<240)
-                //            hand_pix_bottle.addInt(1);
-                //        else
-                //            hand_pix_bottle.addInt(0);
-
-                hand_pix_port.write();
-
-            }
+        std::vector<double> pos_arm(7);
+        for (size_t i = 0; i < pos_arm.size(); i++) {
+            pos_arm[i] = interp[pos_torso.size() + i]->operator()(genLinTraj.getPos());
         }
+        iposd[1]->setPositions(pos_arm.size(), std::vector<int>({0, 1, 2, 3, 4, 5, 6, 7}).data(),
+                               pos_arm.data());
 
-        if (puck_tracked && v > 70 && puck_velocity > 0){
-
-            puck_rf = projectToRobotSpace(u, v);
-
-            std::cout << "Puck tracked: " << puck_rf[0]<<" "<<puck_rf[1]<<" "<<puck_rf[2]<<std::endl;
-
-            static double t0 = yarp::os::Time::now();
-            myFile1<<u<<","<<yarp::os::Time::now()-t0<<","<<std::endl;
-            myFile2<<puck_rf[1]<<","<<yarp::os::Time::now()-t0<<","<<std::endl;
-
-            target[0] = puck_rf[1];
-
-            if (target[0]>y_max)
-                target[0]=y_max;
-            if (target[0]<y_min)
-                target[0]=y_min;
-
-//            double t_max, t_min;
-//            t_max = 1.5; t_min = 0.5;
-//
-//            double T_traj = ((t_max-t_min)/(y_max-y_min))*abs(target[0]-target_prec);
-//
-//            if (T_traj<t_min)
-//                T_traj=t_min;
-//
-//            yInfo()<<target[0];
-//            yInfo()<<target_prec;
-//            yInfo()<<T_traj;
-//            std::cout<<std::endl;
-//
-//            if (T_traj!=0)
-//                reference->setT(T_traj);
-//            target_prec=target[0];
-
-//            reference->computeNextValues(target);
-//            double pos_minjerk = reference->getPos()[0];
-
-            std::cout << "TARGET y=" << target[0] << std::endl;
-
-//            double pos_minjerk = genLinTraj.getPos();
-
-            genLinTraj.computeCoeff(target[0]);
-
-            std::vector<double> pos_torso(3);
-            for (size_t i = 0; i < pos_torso.size(); i++) {
-                pos_torso[pos_torso.size() - 1 - i] = interp[i]->operator()(genLinTraj.getPos());
-            }
-            iposd[0]->setPositions(pos_torso.data());
-
-            std::vector<double> pos_arm(7);
-            for (size_t i = 0; i < pos_arm.size(); i++) {
-                pos_arm[i] = interp[pos_torso.size() + i]->operator()(genLinTraj.getPos());
-            }
-            iposd[1]->setPositions(pos_arm.size(), std::vector<int>({0, 1, 2, 3, 4, 5, 6, 7}).data(),
-                                   pos_arm.data());
-
-            std::vector<double> pos_head(6);
-            for (size_t i = 0; i < pos_head.size(); i++) {
-                pos_head[i] = interp[pos_torso.size() + pos_arm.size() + i]->operator()(genLinTraj.getPos());
-            }
-            iposd[2]->setPositions(pos_head.data());
-
-//            std::cout << "TIMEEEEEEEEEEEEEEE: "<<yarp::os::Time::now() - sending_time <<std::endl;
-
-            std::vector<double> encs_head = readFromEncoders(2);
-            yarp::os::Bottle &headJoints_bottle = headJointsPort.prepare();
-            headJoints_bottle.clear();
-            for (auto i=0; i<6; i++){
-                headJoints_bottle.addDouble(encs_head[i]);
-                headJoints_bottle.addDouble(pos_head[i]);
-            }
-            headJointsPort.write();
-
-            std::vector<double> actual_pos_torso(3);
-            iposd[0]->getRefPositions(actual_pos_torso.data());
-
-            std::vector<double> actual_pos_head(6);
-            iposd[2]->getRefPositions(actual_pos_head.data());
-
-            static double time = yarp::os::Time::now();
-            yarp::sig::Vector x_actual, o_actual;
-            arm->getPose(x_actual, o_actual);
-
-//            head_yaw.push_back(actual_pos_head[2]-actual_pos_torso[0]);
-            elapsed_time.push_back(yarp::os::Time::now()-time);
-            x_ee.push_back(x_actual[0]);
-            x_des.push_back(-0.25);
-            y_ee.push_back(x_actual[1]);
-            y_des.push_back(target[0]);
-            z_ee.push_back(x_actual[2]);
-            z_des.push_back(-0.05);
-
-            head_status.push_back(std::make_tuple(x_actual[1],actual_pos_head[2]-actual_pos_torso[0]));
-            xpos_status.push_back(std::make_tuple(x_actual[1], x_actual[0]));
-            zpos_status.push_back(std::make_tuple(x_actual[1], x_actual[2]));
-
-            yarp::os::Bottle &head_bottle = headPort.prepare();
-            head_bottle.clear();
-            head_bottle.addDouble(actual_pos_head[2]-actual_pos_torso[0]);
-            headPort.write();
-
-            yarp::os::Bottle &ypos_bottle = yposPort.prepare();
-            ypos_bottle.clear();
-            ypos_bottle.addDouble(x_actual[1]);
-            ypos_bottle.addDouble(target[0]);
-            yposPort.write();
-
+        std::vector<double> pos_head(6);
+        for (size_t i = 0; i < pos_head.size(); i++) {
+            pos_head[i] = interp[pos_torso.size() + pos_arm.size() + i]->operator()(genLinTraj.getPos());
         }
+        iposd[2]->setPositions(pos_head.data());
 
-//        double currTime = yarp::os::Time::now();
-////        yInfo() << currTime - prevTime;
-//        std::cout<<std::endl;
-//        prevTime = currTime;
+        yarp::sig::Vector x_actual, o_actual;
+        arm->getPose(x_actual, o_actual);
+
+        yarp::os::Bottle &ypos_bottle = yposPort.prepare();
+        ypos_bottle.clear();
+        ypos_bottle.addDouble(x_actual[1]);
+        ypos_bottle.addDouble(puck_rf[1]);
+        ypos_bottle.addInt(u);
+        ypos_bottle.addDouble(puck_velocity);
+        ypos_bottle.addDouble(mobility_condition);
+        yposPort.write();
 
         return true;
+
     }
 };
 
