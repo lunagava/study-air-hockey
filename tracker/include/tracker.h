@@ -73,8 +73,8 @@ public:
         n = 1000;
         roi[0] = 0; roi[1] = 1000;
         roi[2] = 0; roi[3] = 1000;
-        roi_hand[0] = 91; roi_hand[1] = 191;//141
-        roi_hand[2] = 139; roi_hand[3] = 239;//189
+//        roi_hand[0] = 91; roi_hand[1] = 191;//141
+//        roi_hand[2] = 139; roi_hand[3] = 239;//189
 
     }
 
@@ -173,6 +173,7 @@ private:
     vReadPort<vector<AE> > input_port;
     vWritePort output_port;
     BufferedPort<yarp::sig::ImageOf<yarp::sig::PixelBgr> > image_out;
+    BufferedPort <yarp::sig::ImageOf<yarp::sig::PixelBgr> > filter, image_filtered;
     BufferedPort<Bottle> posObj_port, gt_port;
     BufferedPort<Bottle> hand_location;
 
@@ -200,8 +201,8 @@ private:
     int n_events_acquired, n_events_acquired_insideROI;
 
     yarp::sig::Vector ROI, currentROI;
-    cv::Mat trackImg;
-    int leftRect, rightRect, bottomRect, topRect, leftRect_next, rightRect_next, bottomRect_next, topRect_next;
+    cv::Mat trackImg, filterImg, filteredImg;
+    int leftRect_prev, rightRect_prev, bottomRect_prev, topRect_prev, leftRect_next, rightRect_next, bottomRect_next, topRect_next;
     int n_iterations = 0;
 
     unsigned int i = 0;
@@ -229,7 +230,8 @@ private:
     std::vector<std::shared_ptr<tk::spline>> interp;
     double y_min, y_max;
 
-    double x_dev, y_dev;
+    double x_dev, y_dev, x_dev_prec, y_dev_prec;
+    bool first_time_tracked;
     std::deque<cv::Point2d> COM_history;
     cv::Point nextROI_COM;
     cv::Point2d velocity;
@@ -256,13 +258,15 @@ private:
     std::tuple <double, double, double> ellipseParam(double m00, double m10, double m01, double m11, double m20, double m02);
     std::tuple<double, double> leastSquare(std::deque<cv::Point2d> points);
     cv::Point2d compute_vel(std::deque<cv::Point2d> points);
-    yarp::sig::Matrix gaus2d(yarp::sig::Matrix x, yarp::sig::Matrix y, double mx, double my, double sx, double sy);
-    yarp::sig::Matrix compute_dog(int N, double m1x, double m1y, double s1x, double s1y, double m2x, double m2y, double s2x, double s2y, int roi_width, int roi_height);
+    yarp::sig::Matrix gaus2d(int width, int height, double mx, double my, double sx, double sy);
+    yarp::sig::Matrix compute_dog(double s1x, double s1y, double s2x, double s2y, int roi_width, int roi_height);
     std::tuple<double, double> weighted_CoM(roiq qROI, yarp::sig::Matrix ki, int roi_left, int roi_top, int roi_right, int roi_bottom);
+    void visualize_filter(yarp::sig::Matrix ki, int roi_left, int roi_top, int roi_right, int roi_bottom);
 
 protected:
 
-    yarp::sig::ImageOf<yarp::sig::PixelBgr> trackMap;
+    yarp::sig::ImageOf<yarp::sig::PixelBgr> trackMap, filteredImageMap;
+    yarp::sig::ImageOf<yarp::sig::PixelBgr> filterMap;
     int Xlimit, Ylimit;
 
 public:
@@ -272,6 +276,8 @@ public:
     trackerModule() : Xlimit(304), Ylimit(240) {
         cout << "inside constructor";
         trackMap.resize(Xlimit, Ylimit);
+        filterMap.resize(Xlimit, Ylimit);
+        filteredImageMap.resize(Xlimit, Ylimit);
     }
 
     //the virtual functions that need to be overloaded
