@@ -35,7 +35,7 @@ target_include_directories(${PROJECT_NAME}-2 PRIVATE /workspace/spline/src)
 target_include_directories(${PROJECT_NAME}-2 PRIVATE ${Python3_INCLUDE_DIRS} ${Python3_NumPy_INCLUDE_DIRS})
 target_compile_definitions(${PROJECT_NAME}-2 PRIVATE _USE_MATH_DEFINES)
 target_link_libraries(${PROJECT_NAME}-2 ${YARP_LIBRARIES} ICUB::ctrlLib
-                                                          Python3::Python Python3::NumPy)
+        Python3::Python Python3::NumPy ev::event-driven)
 install(TARGETS ${PROJECT_NAME}-2 DESTINATION bin)
 
 add_executable(${PROJECT_NAME}-3 ${CMAKE_SOURCE_DIR}/src/study-3.cpp)
