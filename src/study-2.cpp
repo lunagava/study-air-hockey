@@ -80,8 +80,10 @@ class ControllerModule: public yarp::os::RFModule, public yarp::os::Thread
     std::string which_arm, robot;
     double velTraj;
 
-    std::ofstream myFile1, myFile2;
+    std::ofstream myFile1, myFile2, myFile3;
     double puck_velocity;
+
+    int label;
 
     deque<LabelledAE> out_queue;
     LabelledAE ev;
@@ -290,17 +292,24 @@ class ControllerModule: public yarp::os::RFModule, public yarp::os::Thread
         // attach the callback respond()
         attach(handlerPort);
 
-        myFile1.open("/code/luna/study-air-hockey/COM_pix.csv");
+        myFile1.open("/code/luna/study-air-hockey/time.txt");
         if (!myFile1.is_open())
+        {
+            yError()<<"Could not open file for updateModule loop time";
+            return -1;
+        }
+
+        myFile2.open("/code/luna/study-air-hockey/info.txt");
+        if (!myFile2.is_open())
         {
             yError()<<"Could not open file for printing COMs";
             return -1;
         }
 
-        myFile2.open("/code/luna/study-air-hockey/COM_robot.csv");
-        if (!myFile2.is_open())
+        myFile3.open("/code/luna/study-air-hockey/projection_tests.txt");
+        if (!myFile3.is_open())
         {
-            yError()<<"Could not open file for printing COMs";
+            yError()<<"Could not open file for printing projections";
             return -1;
         }
 
@@ -320,7 +329,8 @@ class ControllerModule: public yarp::os::RFModule, public yarp::os::Thread
             yarp::os::Bottle *b = puckPort.read();
             u = b->get(0).asInt(); // x coordinate of the pixel within the image plane
             v = b->get(1).asInt(); // y coordinate of the pixel within the image plane
-            pix_stamp = b->get(2).asInt();
+            pix_stamp = b->get(2).asDouble();
+            label =  b->get(3).asInt();
 //            puck_tracked = b->get(2).asInt(); //verify if the target is tracked or not
 //            puck_velocity = b->get(3).asDouble(); // puck velocity along y
             std::cout << "u_puck = " << u << ", v_puck = " << v << std::endl;
@@ -413,43 +423,44 @@ class ControllerModule: public yarp::os::RFModule, public yarp::os::Thread
 //
 //        hand_pix_port.write();
 
-        Stamp ystamp;
-        puckPort.getEnvelope(ystamp);
+        double t_start = yarp::os::Time::now();
+        static double t0 = yarp::os::Time::now();
 
-        ev.ID = 0;
-        ev.x = u;
-        ev.y = v;
-        ev.stamp = pix_stamp/vtsHelper::tsscaler;
-        out_queue.push_back(ev);
-        output_port.write(out_queue, ystamp);
-        out_queue.clear();
+//        std::cout<<"u: "<<u<<", v: "<<v<<", label:"<<label<<std::endl;
+        if (u>0 && u<304 && v>0 && v<240){
 
-        puck_rf = projectToRobotSpace(u, v);
+            Stamp ystamp;
+            puckPort.getEnvelope(ystamp);
 
-//        if (puck_tracked && v>50 && puck_velocity>0) {
+            if (label == 1)
+                ev.ID = 1;
+            else
+                ev.ID = 0;
+            ev.x = u;
+            ev.y = v;
+            ev.stamp = pix_stamp/vtsHelper::tsscaler;
+            out_queue.push_back(ev);
+            output_port.write(out_queue, ystamp);
+            out_queue.clear();
+        }
 
-//            mobility_condition = true;
+//        if (v>70){
+            puck_rf = projectToRobotSpace(u, v);
 
-//                    static double t0 = yarp::os::Time::now();
-//                    myFile1 << u << "," << yarp::os::Time::now() - t0 << "," << std::endl;
-//                    myFile2 << puck_rf[1] << "," << yarp::os::Time::now() - t0 << "," << std::endl;
+//        yarp::sig::Vector pix_reprojected = projectToVisualSpace(puck_rf);
+//
+//        double u_check = 152;
+//        double v_check = 120;
+//        yarp::sig::Vector projection_check = projectToRobotSpace(u_check, v_check);
 
-        target = puck_rf[1];
+            target = puck_rf[1];
 
-        std::cout<< "y TARGET: "<<puck_rf[1]<<std::endl;
+//        std::cout<< "y TARGET: "<<puck_rf[1]<<std::endl;
 
-        if (target > y_max)
-            target = y_max;
-        if (target < y_min)
-            target = y_min;
-
-//        }
-//        else if (puck_tracked && puck_velocity<0){
-//            if (reached)
-//                target = 0;
-//        }
-//        else{
-//            mobility_condition=false;
+            if (target > y_max)
+                target = y_max;
+            if (target < y_min)
+                target = y_min;
 //        }
 
         genLinTraj.computeCoeff(target);
@@ -480,10 +491,14 @@ class ControllerModule: public yarp::os::RFModule, public yarp::os::Thread
         ypos_bottle.clear();
         ypos_bottle.addDouble(x_actual[1]);
         ypos_bottle.addDouble(puck_rf[1]);
-        ypos_bottle.addInt(u);
-        ypos_bottle.addDouble(puck_velocity);
-        ypos_bottle.addDouble(mobility_condition);
+        ypos_bottle.addDouble(u);
+//        ypos_bottle.addDouble(puck_velocity);
+//        ypos_bottle.addDouble(mobility_condition);
         yposPort.write();
+
+        myFile1 << yarp::os::Time::now() - t_start << std::endl;
+        myFile2 << x_actual[1] << " " << puck_rf[1] << " "<< u<< " "<<yarp::os::Time::now() - t0<<std::endl;
+//        myFile3 << projection_check[1]<<" "<<u<<" "<<pix_reprojected[1]<<" "<<v<<" "<<pix_reprojected[0]<<" "<<yarp::os::Time::now() - t0<< std::endl;
 
         return true;
 
