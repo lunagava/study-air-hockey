@@ -11,8 +11,9 @@ class linearTraj {
 protected:
     double pos;          // current position
     double vel;
-    double Ts;
-    double epsilon=0.001;
+    double Ts; // must be at least equal to or lower than 10 ms
+    double epsilon = 0.005; // 5 mm (1/2 cm)
+    bool reached;
 
 public:
 
@@ -23,9 +24,9 @@ public:
     }
 
 
-    virtual void computeCoeff(double yd){
+    void computeCoeff(double yd){
 
-        if(abs(pos-yd) > epsilon){
+        if(std::abs(pos-yd) > epsilon){
             if (pos<yd)
                 pos = pos + vel*Ts;
             else
