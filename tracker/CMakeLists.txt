@@ -22,22 +22,22 @@ endif()
 
 include(AddInstallRPATHSupport)
 add_install_rpath_support(BIN_DIRS "${CMAKE_INSTALL_FULL_BINDIR}"
-                          LIB_DIRS "${CMAKE_INSTALL_FULL_LIBDIR}"
-                          INSTALL_NAME_DIR "${CMAKE_INSTALL_FULL_LIBDIR}"
-                          USE_LINK_PATH)
+        LIB_DIRS "${CMAKE_INSTALL_FULL_LIBDIR}"
+        INSTALL_NAME_DIR "${CMAKE_INSTALL_FULL_LIBDIR}"
+        USE_LINK_PATH)
 
 add_executable(${PROJECT_NAME} ${source} ${header})
 
 target_link_libraries(${PROJECT_NAME} PRIVATE YARP::YARP_OS
-                                              YARP::YARP_init
-                                              YARP::YARP_sig
-                                              YARP::YARP_dev
-                                              YARP::YARP_math
-                                              ev::event-driven
-                                              ${OpenCV_LIBRARIES})
+        YARP::YARP_init
+        YARP::YARP_sig
+        YARP::YARP_dev
+        YARP::YARP_math
+        ev::event-driven
+        ${OpenCV_LIBRARIES})
 
 target_include_directories(${PROJECT_NAME} PRIVATE ${PROJECT_SOURCE_DIR}/include)
 
 install(TARGETS ${PROJECT_NAME} DESTINATION ${CMAKE_INSTALL_BINDIR})
-file(GLOB scripts ${CMAKE_SOURCE_DIR}/app/scripts/${PROJECT_NAME}.xml)
+file(GLOB scripts ${CMAKE_SOURCE_DIR}/app/scripts/app_vAirHockeyDemo.xml)
 yarp_install(FILES ${scripts} DESTINATION ${EVENT-DRIVEN_APPLICATIONS_INSTALL_DIR})
