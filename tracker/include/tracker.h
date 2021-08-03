@@ -66,6 +66,7 @@ public:
     AE update_events;
     double percentage_update;
     int queue_size;
+    double y_max, slope1, intercept1, slope2, intercept2;
 
     roiq() {
         roi.resize(4);
@@ -111,11 +112,31 @@ public:
         roi_hand[2] = yl; roi_hand[3] = yh;
     }
 
+    void set_table(double max_top_table, double m2, double q2, double m4, double q4){
+        y_max = max_top_table;
+        slope1 = m2;
+        intercept1 = q2;
+        slope2 = m4;
+        intercept2 = q4;
+    }
+
     int add(const AE &v) {
 
         if (v.x < roi[0] || v.x > roi[1] || v.y < roi[2] || v.y > roi[3]) {
             return 0;
         }
+
+        if (v.y > y_max){
+            double x_reference_left =  (v.y - intercept1)/slope1;
+            double x_reference_right =  (v.y - intercept2)/slope2;
+
+            if (v.x < x_reference_left || v.x > x_reference_right)
+                return 0;
+        }
+
+        if(v.y < y_max)
+            return 0;
+
 //        if (v.x>roi_hand[0] && v.x<roi_hand[1] && v.y>roi_hand[2] && v.y<roi_hand[3]) {
 //            return 0;
 //        }
@@ -248,6 +269,8 @@ private:
     double filtered_xCoM, filtered_yCoM;
     cv::Point index_max;
 
+    double u1, v1, u2, v2, u3, v3, u4, v4, m2, q2, m4, q4, max_top_table;
+
     void resetTracker();
     double SeriesInverseError20thOrder(const double x);
     std::vector<std::vector<double>> read_ground_truth();
@@ -262,6 +285,7 @@ private:
     yarp::sig::Matrix compute_dog(double s1x, double s1y, double s2x, double s2y, int roi_width, int roi_height);
     std::tuple<double, double> weighted_CoM(roiq qROI, yarp::sig::Matrix ki, int roi_left, int roi_top, int roi_right, int roi_bottom);
     void visualize_filter(yarp::sig::Matrix ki, int roi_left, int roi_top, int roi_right, int roi_bottom);
+    bool isLeft(Point a, Point b, Point c);
 
 protected:
 

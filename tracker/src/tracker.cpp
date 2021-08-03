@@ -61,7 +61,7 @@ bool trackerModule::configure(yarp::os::ResourceFinder &rf) {
     n_mass = rf.check("events", Value(100)).asInt();
     n_mass_max = rf.check("max_events", Value(200)).asInt();
     n_mass_min = rf.check("min_events", Value(20)).asInt();
-    update_rate= rf.check("update_rate", Value(0.05)).asDouble();
+    update_rate= rf.check("update_rate", Value(0.2)).asDouble();
     reset_time = rf.check("reset_time", Value(10)).asDouble();
     min_widthROI = rf.check("min_roi_width", Value(10)).asInt();
     min_heightROI = rf.check("min_roi_height", Value(10)).asInt();
@@ -130,6 +130,13 @@ bool trackerModule::configure(yarp::os::ResourceFinder &rf) {
 
     line = read_ground_truth();
     row = 0;
+
+    filtered_yCoM=0;
+    filtered_yCoM=0;
+
+    max_top_table = 0;
+    m2 = 1; q2 = 0;
+    m4 = 1; q4 = res.width;
 
     return Thread::start();
 }
@@ -638,6 +645,10 @@ cv::Point2d trackerModule::compute_vel(std::deque<cv::Point2d> points)
     return vel;
 }
 
+bool trackerModule::isLeft(Point a, Point b, Point c){
+    return ((c.x - b.x)*(a.y - b.y) - (c.y - b.y)*(a.x - b.x)) > 0;
+}
+
 double trackerModule::getPeriod() {
     return 0.01;
 }
@@ -666,13 +677,10 @@ bool trackerModule::updateModule() {
     if (tracking){
         Bottle &pos_Obj = posObj_port.prepare();
         pos_Obj.clear();
-        pos_Obj.addInt(COM.x);
-        pos_Obj.addInt(COM.y);
-        pos_Obj.addInt(1);
-        pos_Obj.addDouble(velocity.y);
+        pos_Obj.addDouble(filtered_xCoM);
+        pos_Obj.addDouble(filtered_yCoM);
+        pos_Obj.addDouble(COM_timestamp);
         posObj_port.setEnvelope(ystamp);
-
-        //            cout << "tracked" << "(" << COM.x << " , " << COM.y << ")" << endl;
         posObj_port.write();
 
         double curr_time = yarp::os::Time::now();
@@ -685,15 +693,33 @@ bool trackerModule::updateModule() {
         }
     }
 
-//    Bottle *bottle_hand_location = hand_location.read();
-//    y_hand_position = bottle_hand_location->get(0).asDouble();
-//    x_hand_pixel = bottle_hand_location->get(1).asDouble();
-//    y_hand_pixel = bottle_hand_location->get(2).asDouble();
-//
+    Bottle *bottle_hand_location = hand_location.read();
+    y_hand_position = bottle_hand_location->get(0).asDouble();
+    x_hand_pixel = bottle_hand_location->get(1).asDouble();
+    y_hand_pixel = bottle_hand_location->get(2).asDouble();
+    u1 = bottle_hand_location->get(3).asDouble();
+    v1 = bottle_hand_location->get(4).asDouble();
+    u2 = bottle_hand_location->get(5).asDouble();
+    v2 = bottle_hand_location->get(6).asDouble();
+    u3 = bottle_hand_location->get(7).asDouble();
+    v3 = bottle_hand_location->get(8).asDouble();
+    u4 = bottle_hand_location->get(9).asDouble();
+    v4 = bottle_hand_location->get(10).asDouble();
+
+    max_top_table = std::max(v3,v4);
+
+    m2 = (v3-v2)/(u3-u2);
+    q2 = -m2*u2 + v2;
+
+    m4 = (v4-v1)/(u4-u1);
+    q4 = -m4*u1 + v1;
+
+    qROI.set_table(max_top_table,m2,q2,m4,q4);
+
 //    std::cout<<"u HAND: "<<x_hand_pixel<<std::endl;
 //    std::cout<<"v HAND: "<<y_hand_pixel<<std::endl;
 //    std::cout<<"Y CARTESIAN HAND: "<<y_hand_position<<std::endl;
-//
+
 //    std::vector<double> hand_roi(6);
 //    for (size_t i = 0; i < hand_roi.size(); i++) {
 //        hand_roi[i] = interp[i]->operator()(y_hand_position);
@@ -713,7 +739,6 @@ bool trackerModule::updateModule() {
         trackMap.zero();
         trackImg = cv::cvarrToMat((IplImage *) display.getIplImage());
         cv::applyColorMap(trackImg, trackImg, cv::COLORMAP_BONE);
-
 
         yarp::sig::ImageOf<yarp::sig::PixelBgr> &display2 = image_filtered.prepare();
         display2 = filteredImageMap;
@@ -750,6 +775,11 @@ bool trackerModule::updateModule() {
         //                      cv::Point(hand_roi[2], hand_roi[4]),
         //                      cv::Point(hand_roi[3], hand_roi[5]), cv::Scalar(255, 255, 0),
         //                      1, 8, 0); // print ROI box
+
+        cv::line(trackImg, cv::Point(u1, v1), cv::Point(u2, v2), cv::Scalar(255, 0, 0), 1);
+        cv::line(trackImg, cv::Point(u2, v2), cv::Point(u3, v3), cv::Scalar(0, 0, 255), 1);
+        cv::line(trackImg, cv::Point(u3, v3), cv::Point(u4, v4), cv::Scalar(255, 0, 0), 1);
+        cv::line(trackImg, cv::Point(u4, v4), cv::Point(u1, v1), cv::Scalar(0, 0, 255), 1);
 
         image_out.write();
         image_filtered.write();
