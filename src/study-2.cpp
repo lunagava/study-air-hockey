@@ -38,6 +38,13 @@
 #include <yarp/dev/IControlLimits.h>
 #include <yarp/dev/IEncoders.h>
 
+#include <opencv2/opencv.hpp>
+#include <opencv2/core.hpp>
+#include <opencv2/imgproc.hpp>
+#include <opencv2/videoio/videoio_c.h>
+#include <opencv2/calib3d.hpp>
+#include <opencv2/calib3d/calib3d_c.h>
+
 #include <iCub/ctrl/minJerkCtrl.h>
 
 #include "../../spline/src/spline.h"
@@ -50,6 +57,7 @@
 #include <event-driven/all.h>
 
 using namespace ev;
+using namespace cv;
 
 namespace plt = matplotlibcpp;
 
@@ -99,6 +107,7 @@ class ControllerModule: public yarp::os::RFModule, public yarp::os::Thread
     bool reached;
 
     bool mobility_condition;
+    yarp::sig::Vector right_bottom_vertex, left_bottom_vertex, right_top_vertex, left_top_vertex;
 
     /********************************************************************/
     void helperOpenDevice(const int i, const std::string& device_name) {
@@ -405,23 +414,53 @@ class ControllerModule: public yarp::os::RFModule, public yarp::os::Thread
         return 0.01;
     }
 
+    std::tuple<yarp::sig::Vector, yarp::sig::Vector, yarp::sig::Vector, yarp::sig::Vector> project_four_vertices_table(){
+
+        yarp::sig::Vector right_bottom, left_bottom, right_top, left_top;
+        yarp::sig::Vector right_bottom_pix, left_bottom_pix, right_top_pix, left_top_pix;
+        std::vector<yarp::sig::Vector> table_vertices;
+
+        right_bottom.resize(3); left_bottom.resize(3); right_top.resize(3); left_top.resize(3);
+
+        right_bottom[0] = -0.4; left_bottom[0] = -0.4; right_top[0] = -2.23; left_top[0] = -2.23;
+        right_bottom[1] = 0.4; left_bottom[1] = -0.4; right_top[1] = 0.4; left_top[1] = -0.4;
+        right_bottom[2] = -0.09; left_bottom[2] = -0.09; right_top[2] = -0.09; left_top[2] = -0.09;
+
+        right_bottom_pix = projectToVisualSpace(right_bottom);
+        left_bottom_pix = projectToVisualSpace(left_bottom);
+        right_top_pix = projectToVisualSpace(right_top);
+        left_top_pix = projectToVisualSpace(left_top);
+
+        return std::make_tuple(right_bottom_pix,left_bottom_pix,right_top_pix,left_top_pix);
+    }
+
     /********************************************************************/
     bool updateModule() override {
 
-//        yarp::sig::Vector currentArmPos, currentArmOrient, hand_pix;
-//        arm->getPose(currentArmPos, currentArmOrient);
-//        hand_pix = projectToVisualSpace(currentArmPos);
-//
-////            std::cout << "u_hand:" << hand_pix[0] << ", v_hand:" << hand_pix[1] << std::endl;
-//
-//        // BOTTLE for printing the current u and v of the arm and of the puck in the visual space
-//        yarp::os::Bottle &hand_pix_bottle = hand_pix_port.prepare();
-//        hand_pix_bottle.clear();
-//        hand_pix_bottle.addDouble(currentArmPos[1]);
-//        hand_pix_bottle.addDouble(hand_pix[0]);
-//        hand_pix_bottle.addDouble(hand_pix[1]);
-//
-//        hand_pix_port.write();
+        std::tie(right_bottom_vertex, left_bottom_vertex, right_top_vertex, left_top_vertex) = project_four_vertices_table();
+        yarp::sig::Vector currentArmPos, currentArmOrient, hand_pix;
+        arm->getPose(currentArmPos, currentArmOrient);
+        hand_pix = projectToVisualSpace(currentArmPos);
+
+//            std::cout << "u_hand:" << hand_pix[0] << ", v_hand:" << hand_pix[1] << std::endl;
+
+        // BOTTLE for printing the current u and v of the arm and of the puck in the visual space
+        yarp::os::Bottle &hand_pix_bottle = hand_pix_port.prepare();
+        hand_pix_bottle.clear();
+        hand_pix_bottle.addDouble(currentArmPos[1]);
+        hand_pix_bottle.addDouble(hand_pix[0]);
+        hand_pix_bottle.addDouble(hand_pix[1]);
+        hand_pix_bottle.addDouble(right_bottom_vertex[0]);
+        hand_pix_bottle.addDouble(right_bottom_vertex[1]);
+        hand_pix_bottle.addDouble(left_bottom_vertex[0]);
+        hand_pix_bottle.addDouble(left_bottom_vertex[1]);
+        hand_pix_bottle.addDouble(left_top_vertex[0]);
+        hand_pix_bottle.addDouble(left_top_vertex[1]);
+        hand_pix_bottle.addDouble(right_top_vertex[0]);
+        hand_pix_bottle.addDouble(right_top_vertex[1]);
+        std::cout<<"Vertices: (" << right_bottom_vertex[0]<<","<<right_bottom_vertex[1]<<"), ("<<left_bottom_vertex[0]<<","<<left_bottom_vertex[1]<<"), ("<<left_top_vertex[0]<<", "<<left_top_vertex[1]<<"), ("<<right_top_vertex[0]<<", "<<right_top_vertex[1]<<")"<<std::endl;
+
+        hand_pix_port.write();
 
         double t_start = yarp::os::Time::now();
         static double t0 = yarp::os::Time::now();
@@ -499,6 +538,7 @@ class ControllerModule: public yarp::os::RFModule, public yarp::os::Thread
         myFile1 << yarp::os::Time::now() - t_start << std::endl;
         myFile2 << x_actual[1] << " " << puck_rf[1] << " "<< u<< " "<<yarp::os::Time::now() - t0<<std::endl;
 //        myFile3 << projection_check[1]<<" "<<u<<" "<<pix_reprojected[1]<<" "<<v<<" "<<pix_reprojected[0]<<" "<<yarp::os::Time::now() - t0<< std::endl;
+
 
         return true;
 
