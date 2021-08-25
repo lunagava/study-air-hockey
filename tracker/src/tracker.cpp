@@ -175,8 +175,8 @@ void trackerModule::run() {
                     return;
                 }
             }
-            yarp::sig::PixelBgr &ePix = trackMap.pixel((*q)[i].x,(*q)[i].y);
-            ePix.b = ePix.g = ePix.r = 255;
+//            yarp::sig::PixelBgr &ePix = trackMap.pixel((*q)[i].x,(*q)[i].y);
+//            ePix.b = ePix.g = ePix.r = 255;
 
             addEvents += qROI.add((*q)[i++]);
 
@@ -255,19 +255,48 @@ void trackerModule::run() {
 
             sigmaEllx = 1.8*x_dev_prec;
             sigmaElly = 1.8*y_dev_prec;
-            sigmaAx = sigmaEllx/2;
-            sigmaAy = sigmaElly/2;
-            sigmaBx = sigmaEllx/4;
-            sigmaBy = sigmaElly/4;
+            sigmaAx = sigmaEllx;
+            sigmaAy = sigmaElly;
+            sigmaBx = sigmaEllx/2;
+            sigmaBy = sigmaElly/2;
 
             weights_filter = compute_dog(sigmaAx, sigmaAy, sigmaBx, sigmaBy, (qROI.getROI()[1]-qROI.getROI()[0]), (qROI.getROI()[3]-qROI.getROI()[2]));
-            std::tie(filtered_xCoM, filtered_yCoM) = weighted_CoM(qROI, weights_filter, qROI.getROI()[0], qROI.getROI()[2], qROI.getROI()[1], qROI.getROI()[3]);
+
+//            weights_filter.convertTo(weights_filter_image, CV_8UC1, 255);
+
+//            imshow("DoG", weights_filter);
+//            waitKey(3);
+
+            result_conv = convolve(qROI, weights_filter, qROI.getROI()[0], qROI.getROI()[2], qROI.getROI()[1], qROI.getROI()[3]);
+            cv::minMaxLoc(result_conv, &min, &max, &min_loc, &max_loc);
+
+            std::cout<< "max (peak): "<<max<<"in "<<max_loc<<std::endl;
+
+            result_conv = result_conv/max;
+
+            result_conv.convertTo(result_conv, CV_8U, 255);
+//
+            std::cout << "result conv: "<<std::endl;
+            for (auto r=0; r<result_conv.rows; r++){
+                for (auto c=0; c<result_conv.cols; c++){
+                    std::cout<<result_conv.at<int>(r,c)<<" ";
+                }
+                std::cout<<std::endl;
+            }
+            std::cout<<"--------------------------------------"<<std::endl;
+
+            circle(result_conv, max_loc, 3, cv::Scalar(255, 0, 0));
+//            cv::applyColorMap(result_conv, result_conv, cv::COLORMAP_VIRIDIS);
+            imshow("result", result_conv);
+            waitKey(3);
+
+//            std::tie(filtered_xCoM, filtered_yCoM) = weighted_CoM(qROI, weights_filter, qROI.getROI()[0], qROI.getROI()[2], qROI.getROI()[1], qROI.getROI()[3]);
 //            std::cout<<"Filtered COM: ("<<filtered_xCoM<<","<<filtered_yCoM<<")"<<std::endl;
 
-            leftRect_next = filtered_xCoM - widthROI;
-            rightRect_next = filtered_xCoM + widthROI;
-            topRect_next = filtered_yCoM - heightROI;
-            bottomRect_next = filtered_yCoM + heightROI;
+            leftRect_next = COM.x - widthROI;
+            rightRect_next = COM.x + widthROI;
+            topRect_next = COM.y - heightROI;
+            bottomRect_next = COM.y + heightROI;
 
             // ---------------------------------------------------------------------------------
             // --------------------------- visualize DoG filter  -------------------------------
@@ -289,7 +318,6 @@ void trackerModule::run() {
 
             filter.write();
 
-
             // ---------------------------------------------------------------------------------
             // ---------------------------------- update ROI -----------------------------------
             // ---------------------------------------------------------------------------------
@@ -301,14 +329,36 @@ void trackerModule::run() {
             // ---------------------------------------------------------------------------------
 
             double coeff = res.height/(n_mass_max-n_mass_min);
-            if (filtered_yCoM!=0)
+            if (COM.y!=0)
                 n_mass = int((1/coeff)*COM.y+ coeff*n_mass_min);
 
 
-            COM_prec.x = filtered_xCoM;
-            COM_prec.y = filtered_yCoM;
+            COM_prec.x = COM.x;
+            COM_prec.y = COM.y;
             x_dev_prec = x_dev;
             y_dev_prec = y_dev;
+
+            if (COM_history.size()>10){
+                COM_history.push_back(COM.y);
+                COM_history.pop_front();
+//                for (auto i=0; i<COM_history.size();i++)
+//                    std::cout<<COM_history[i]<<", ";
+//                std::cout<<std::endl;
+                total_displacement = computeDisplacement(COM_history);
+
+                //        nextROI_COM = cv::Point(COM.x + velocity.x, COM.y + velocity.y);
+
+                //        left_ROI_predicted = nextROI_COM.x - widthROI;
+                //        right_ROI_predicted = nextROI_COM.x + widthROI;
+                //        bottom_ROI_predicted = nextROI_COM.y - heightROI;
+                //        top_ROI_predicted = nextROI_COM.y + heightROI;
+
+//                ROI = qROI.setROI(left_ROI_predicted, right_ROI_predicted, bottom_ROI_predicted, top_ROI_predicted);
+            }
+            else{
+                if (COM.y != 0)
+                    COM_history.push_back(COM.y);
+            }
 
             prev_t = yarp::os::Time::now();
 
@@ -327,23 +377,22 @@ void trackerModule::resetTracker() {
     tracking = false;
 }
 
-yarp::sig::Matrix trackerModule::gaus2d(int width, int height, double mx, double my, double sx, double sy){
+Mat trackerModule::gaus2d(int width, int height, double mx, double my, double sx, double sy){
 
-    yarp::sig::Matrix gxy;
-    gxy = yarp::math::zeros(width, height);
+    Mat gxy = Mat::zeros(width, height, CV_32F);
 
-    for (auto r=0; r<gxy.rows(); r++){
-        for(auto c=0; c<gxy.cols(); c++){
-            gxy(r,c) = 1 / (2 * M_PI * sx * sy) * exp(-((r-mx)*(r-mx) / (2 * sx * sx) + (c - my)*(c-my) / (2 * sy*sy)));
+    for (auto r=0; r<gxy.rows; r++){
+        for(auto c=0; c<gxy.cols; c++){
+            gxy.at<float>(r,c) = 1 / (2 * M_PI * sx * sy) * exp(-((r-mx)*(r-mx) / (2 * sx * sx) + (c - my)*(c-my) / (2 * sy*sy)));
         }
     }
 
     return gxy;
 }
 
-yarp::sig::Matrix trackerModule::compute_dog(double s1x, double s1y, double s2x, double s2y, int roi_width, int roi_height){
+Mat trackerModule::compute_dog(double s1x, double s1y, double s2x, double s2y, int roi_width, int roi_height){
 
-    yarp::sig::Matrix dog, g1, g2;
+    Mat dog, g1, g2;
 
     double mx = (roi_width)/2;
     double my = (roi_height)/2;
@@ -367,16 +416,16 @@ yarp::sig::Matrix trackerModule::compute_dog(double s1x, double s1y, double s2x,
 //        std::cout<<std::endl;
 //    }
 
-    dog = yarp::math::zeros(g1.rows(), g1.cols());
+    dog = Mat::zeros(g1.rows, g1.cols, CV_32F);
 
     double maxElement = -100;
 
-    for (auto r=0; r<g1.rows(); r++){
-        for(auto c=0; c<g1.cols(); c++){
+    for (auto r=0; r<g1.rows; r++){
+        for(auto c=0; c<g1.cols; c++){
 
-            dog(r,c) = std::max(g1(r,c)/g1(mx, my) - g2(r,c)/g2(mx, my),0.0);
-            if (dog(r,c) > maxElement) {
-                maxElement = dog(r,c);
+            dog.at<float>(r,c) = std::max(g1.at<float>(r,c)/g1.at<float>(mx, my) - g2.at<float>(r,c)/g2.at<float>(mx, my), 0.0f);
+            if (dog.at<float>(r,c) > maxElement) {
+                maxElement = dog.at<float>(r,c);
                 index_max = cv::Point (r,c);
             }
         }
@@ -393,9 +442,9 @@ yarp::sig::Matrix trackerModule::compute_dog(double s1x, double s1y, double s2x,
 //    }
 
     // normalize dog
-    for (auto r=0; r<g1.rows(); r++){
-        for(auto c=0; c<g1.cols(); c++){
-            dog(r,c) = 2*(dog(r,c)/maxElement);
+    for (auto r=0; r<g1.rows; r++){
+        for(auto c=0; c<g1.cols; c++){
+            dog.at<float>(r,c) = (dog.at<float>(r,c)/maxElement);
         }
     }
 
@@ -476,8 +525,8 @@ std::tuple<double, double, double, double, double, double> trackerModule::comput
     double time_sum = 0, mean_time = 0;
     for (auto i = 0; i < m00; i++) {
 
-//        yarp::sig::PixelBgr &ePix = trackMap.pixel(qROI.q[i].x,qROI.q[i].y);
-//        ePix.b = ePix.g = ePix.r = 255;
+        yarp::sig::PixelBgr &ePix = trackMap.pixel(qROI.q[i].x,qROI.q[i].y);
+        ePix.b = ePix.g = ePix.r = 255;
 
         // compute raw moments of first order
         m10 += qROI.q[i].x; // sum of coord x of events within the ROI
@@ -503,7 +552,7 @@ std::tuple<double, double, double, double, double, double> trackerModule::comput
     return std::make_tuple(m10, m01, m11, m20, m02, mean_time);
 }
 
-std::tuple<double, double> trackerModule::weighted_CoM(roiq qROI, yarp::sig::Matrix ki, int roi_left, int roi_top, int roi_right, int roi_bottom) {
+std::tuple<double, double> trackerModule::weighted_CoM(roiq qROI, Mat ki, int roi_left, int roi_top, int roi_right, int roi_bottom) {
 
     double xCoM_filtered, yCoM_filtered;
     double m00 = qROI.q.size();
@@ -513,13 +562,13 @@ std::tuple<double, double> trackerModule::weighted_CoM(roiq qROI, yarp::sig::Mat
 
         if (qROI.q[i].x > roi_left &&  qROI.q[i].x < roi_right && qROI.q[i].y > roi_top &&  qROI.q[i].y < roi_bottom) {
 
-            xCoM_filtered += qROI.q[i].x * ki(qROI.q[i].x - roi_left, qROI.q[i].y - roi_top); // sum of coord x of events within the ROI
-            yCoM_filtered += qROI.q[i].y * ki(qROI.q[i].x - roi_left, qROI.q[i].y - roi_top); // sum of coord y of events within the ROI
+            xCoM_filtered += qROI.q[i].x * ki.at<float>(qROI.q[i].x - roi_left, qROI.q[i].y - roi_top); // sum of coord x of events within the ROI
+            yCoM_filtered += qROI.q[i].y * ki.at<float>(qROI.q[i].x - roi_left, qROI.q[i].y - roi_top); // sum of coord y of events within the ROI
 
-            weights_sum += ki(qROI.q[i].x - roi_left, qROI.q[i].y - roi_top);
+            weights_sum += ki.at<float>(qROI.q[i].x - roi_left, qROI.q[i].y - roi_top);
 
             yarp::sig::PixelBgr &curr = filteredImageMap.pixel(qROI.q[i].x, qROI.q[i].y);
-            curr.b = curr.g = curr.r =  ki(qROI.q[i].x - roi_left, qROI.q[i].y - roi_top)*255/2;
+            curr.b = curr.g = curr.r =  ki.at<float>(qROI.q[i].x - roi_left, qROI.q[i].y - roi_top)*255/2;
 
         }
     }
@@ -530,7 +579,44 @@ std::tuple<double, double> trackerModule::weighted_CoM(roiq qROI, yarp::sig::Mat
     return std::make_tuple(xCoM_filtered, yCoM_filtered);
 }
 
-void trackerModule::visualize_filter(yarp::sig::Matrix ki, int roi_left, int roi_top, int roi_right, int roi_bottom){
+Mat trackerModule::convolve(roiq qROI, Mat ki, int roi_left, int roi_top, int roi_right, int roi_bottom) {
+
+    Mat frame, result2;
+    Size imsize;
+    double m00 = qROI.q.size();
+
+    imsize.height = 240;
+    imsize.width = 304;
+    frame = Mat(imsize, CV_32F);
+    frame.setTo(0.0f);
+
+    for (auto i = 0; i < m00; i++) {
+        if (qROI.q[i].x > roi_left &&  qROI.q[i].x < roi_right && qROI.q[i].y > roi_top &&  qROI.q[i].y < roi_bottom)
+            frame.at<float>(qROI.q[i].y, qROI.q[i].x) = 255;
+    }
+
+    cv::filter2D(frame, result2, -1, ki, cv::Point(-1,-1));
+
+    cv::minMaxLoc(result2, &min, &max, &min_loc, &max_loc);
+
+//    std::cout << "result2: "<<std::endl;
+//    for (auto r=0; r<result2.rows; r++){
+//        for (auto c=0; c<result2.cols; c++){
+//            std::cout<<result2.at<float>(r,c)<<" ";
+//        }
+//        std::cout<<std::endl;
+//    }
+//    std::cout<<"--------------------------------------"<<std::endl;
+
+//    circle(frame, max_loc, 3, cv::Scalar(255, 0, 0));
+//
+//    imshow("Events", frame);
+//    waitKey(3);
+
+    return result2;
+}
+
+void trackerModule::visualize_filter(Mat ki, int roi_left, int roi_top, int roi_right, int roi_bottom){
 
     for (auto i = roi_left; i < roi_right; i++) {
         for (auto j = roi_top; j < roi_bottom; j++) {
@@ -538,7 +624,7 @@ void trackerModule::visualize_filter(yarp::sig::Matrix ki, int roi_left, int roi
             if (i>0 && i<304 && j>0 && j<240){
                 yarp::sig::PixelBgr &curr = filterMap.pixel(i, j);
 //                std::cout << "ki: "<< ki(i - roi_left, j - roi_top)<<std::endl;
-                curr.b = curr.g = curr.r = ki(i - roi_left, j - roi_top)*255/2;
+                curr.b = curr.g = curr.r = ki.at<float>(i - roi_left, j - roi_top)*255;
             }
         }
     }
@@ -645,6 +731,20 @@ cv::Point2d trackerModule::compute_vel(std::deque<cv::Point2d> points)
     return vel;
 }
 
+double trackerModule::computeDisplacement(std::deque<double> yCoM_history){
+
+    double sum_delta_y=0;
+
+    for (auto i=1; i<yCoM_history.size(); i++){
+        double delta_y = yCoM_history[i]-yCoM_history[i-1];
+//        std::cout << delta_y << "+";
+        sum_delta_y += delta_y;
+    }
+//    std::cout<<"="<<sum_delta_y<<std::endl;
+
+    return sum_delta_y;
+}
+
 bool trackerModule::isLeft(Point a, Point b, Point c){
     return ((c.x - b.x)*(a.y - b.y) - (c.y - b.y)*(a.x - b.x)) > 0;
 }
@@ -657,29 +757,21 @@ bool trackerModule::updateModule() {
 
 //    std::cout << "--------------------- UPDATE ------------------------"<<std::endl;
 
-    if (COM_history.size()>5){
-        COM_history.push_front(COM);
-        COM_history.pop_back();
-        velocity = compute_vel(COM_history);
-        nextROI_COM = cv::Point(COM.x + velocity.x, COM.y + velocity.y);
-
-        left_ROI_predicted = nextROI_COM.x - widthROI;
-        right_ROI_predicted = nextROI_COM.x + widthROI;
-        bottom_ROI_predicted = nextROI_COM.y - heightROI;
-        top_ROI_predicted = nextROI_COM.y + heightROI;
-
-//                ROI = qROI.setROI(left_ROI_predicted, right_ROI_predicted, bottom_ROI_predicted, top_ROI_predicted);
-    }
-    else{
-        COM_history.push_front(COM);
-    }
 
     if (tracking){
+
         Bottle &pos_Obj = posObj_port.prepare();
         pos_Obj.clear();
-        pos_Obj.addDouble(filtered_xCoM);
-        pos_Obj.addDouble(filtered_yCoM);
+        pos_Obj.addDouble(COM.x);
+        pos_Obj.addDouble(COM.y);
         pos_Obj.addDouble(COM_timestamp);
+        if (total_displacement>0)
+            pos_Obj.addDouble(1);
+        else if (total_displacement==0)
+            pos_Obj.addDouble(0);
+        else
+            pos_Obj.addDouble(-1);
+//        std::cout << "delta_y = "<<total_displacement<<std::endl;
         posObj_port.setEnvelope(ystamp);
         posObj_port.write();
 
@@ -720,13 +812,13 @@ bool trackerModule::updateModule() {
 //    std::cout<<"v HAND: "<<y_hand_pixel<<std::endl;
 //    std::cout<<"Y CARTESIAN HAND: "<<y_hand_position<<std::endl;
 
-//    std::vector<double> hand_roi(6);
-//    for (size_t i = 0; i < hand_roi.size(); i++) {
-//        hand_roi[i] = interp[i]->operator()(y_hand_position);
-//    }
-//
-//    qROI.setROI_hand(hand_roi[2], hand_roi[3],hand_roi[4], hand_roi[5]);
-//    qROI.remove_handEvents();
+    std::vector<double> hand_roi(6);
+    for (size_t i = 0; i < hand_roi.size(); i++) {
+        hand_roi[i] = interp[i]->operator()(y_hand_position);
+    }
+
+    qROI.setROI_hand(hand_roi[2], hand_roi[3],hand_roi[4], hand_roi[5]);
+    qROI.remove_handEvents();
 
     // ---------------------------------------------------------------------------------
     // --------------------------- print CoM, ROI, ellipse -----------------------------
@@ -751,12 +843,12 @@ bool trackerModule::updateModule() {
             //                cv::circle(trackImg, COM, 1, cv::Scalar(0, 255, 0), -1, 8, 0);
             //                cv::rectangle(trackImg, cv::Point(leftRect_next, topRect_next), cv::Point(rightRect_next, bottomRect_next),
             //                                                                                                            cv::Scalar(0, 0, 0), 1, 8, 0); // print ROI box
-            cv::circle(trackImg, cv::Point(filtered_xCoM, filtered_yCoM), 1, cv::Scalar(0, 0, 255), -1, 8, 0);
+            cv::circle(trackImg, max_loc, 1, cv::Scalar(0, 0, 255), -1, 8, 0);
             cv::rectangle(trackImg, cv::Point(qROI.getROI()[0], qROI.getROI()[2]),
                           cv::Point(qROI.getROI()[1], qROI.getROI()[3]),
                           cv::Scalar(0, 255, 0), 1, 8, 0); // print ROI box
-            //                cv::circle(trackImg, COM_prec, 1, cv::Scalar(0, 0, 255), -1, 8, 0);
-
+//            //                cv::circle(trackImg, COM_prec, 1, cv::Scalar(0, 0, 255), -1, 8, 0);
+//
             if (x_dev_prec > 0 && y_dev_prec > 0)
                 cv::ellipse(trackImg, COM_prec, cv::Size(1.8 * x_dev_prec, 1.8 * y_dev_prec), 0, 0, 360,
                             cv::Scalar(0, 255,
@@ -769,12 +861,12 @@ bool trackerModule::updateModule() {
             //            cv::circle(trackImg, nextROI_COM, 1, cv::Scalar(229, 132, 249), -1, 8, 0);
         }
         // hand
-        //        cv::circle(trackImg, cv::Point2d(hand_roi[0], hand_roi[1]), 3, cv::Scalar(255, 255, 0), -1, 8,
-        //                   0);
-        //        cv::rectangle(trackImg,
-        //                      cv::Point(hand_roi[2], hand_roi[4]),
-        //                      cv::Point(hand_roi[3], hand_roi[5]), cv::Scalar(255, 255, 0),
-        //                      1, 8, 0); // print ROI box
+        cv::circle(trackImg, cv::Point2d(hand_roi[0], hand_roi[1]), 3, cv::Scalar(255, 255, 0), -1, 8,
+                   0);
+        cv::rectangle(trackImg,
+                      cv::Point(hand_roi[2], hand_roi[4]),
+                      cv::Point(hand_roi[3], hand_roi[5]), cv::Scalar(255, 255, 0),
+                      1, 8, 0); // print ROI box
 
         cv::line(trackImg, cv::Point(u1, v1), cv::Point(u2, v2), cv::Scalar(255, 0, 0), 1);
         cv::line(trackImg, cv::Point(u2, v2), cv::Point(u3, v3), cv::Scalar(0, 0, 255), 1);
@@ -783,6 +875,7 @@ bool trackerModule::updateModule() {
 
         image_out.write();
         image_filtered.write();
+
     }
 
     return Thread::isRunning();
