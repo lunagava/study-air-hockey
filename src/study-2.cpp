@@ -48,7 +48,6 @@
 #include <iCub/ctrl/minJerkCtrl.h>
 
 #include "../../spline/src/spline.h"
-#include "matplotlib-cpp/matplotlibcpp.h"
 #include "linearTraj.h"
 
 #include <yarp/sig/Matrix.h>
@@ -58,8 +57,6 @@
 
 using namespace ev;
 using namespace cv;
-
-namespace plt = matplotlibcpp;
 
 /************************************************************************/
 class ControllerModule: public yarp::os::RFModule, public yarp::os::Thread
@@ -92,21 +89,21 @@ class ControllerModule: public yarp::os::RFModule, public yarp::os::Thread
     double puck_velocity;
 
     int label;
+    yarp::sig::Vector eye_pos, eye_orient, head_pos, head_orient;
 
     deque<LabelledAE> out_queue;
     LabelledAE ev;
 
     vWritePort output_port;
     yarp::os::BufferedPort<yarp::os::Bottle> targetPort;
-    yarp::os::BufferedPort<yarp::os::Bottle> yposPort, puckPort, hand_pix_port;
+    yarp::os::BufferedPort<yarp::os::Bottle> yposPort, puckPort, hand_pix_port, eyePort;
     yarp::os::RpcServer handlerPort;
 
     linearTraj genLinTraj;
 
     double target;
-    bool reached;
 
-    bool mobility_condition;
+    bool mobility_condition, first_cycle, reached;
     yarp::sig::Vector right_bottom_vertex, left_bottom_vertex, right_top_vertex, left_top_vertex;
 
     /********************************************************************/
@@ -127,17 +124,17 @@ class ControllerModule: public yarp::os::RFModule, public yarp::os::Thread
         int naxes;
         ipos[i]->getAxes(&naxes);
         std::vector<int> modes(naxes, VOCAB_CM_POSITION);
-        std::vector<double> vels(naxes, 10.);
+        std::vector<double> vels(naxes, 20.);
         std::vector<double> accs(naxes, std::numeric_limits<double>::max());
         std::vector<double> poss(naxes, 0.);
         imod->setControlModes(modes.data());
         ipos[i]->setRefSpeeds(vels.data());
         ipos[i]->setRefAccelerations(accs.data());
-//        if (naxes==16){
-//            double pinkie_min, pinkie_max;
-//            ilim -> getLimits(15, &pinkie_min, &pinkie_max);
-//            fingers_posture={60., 80., 40., 35., 40., 35., 40., 35., pinkie_max};
-//        }
+        if (naxes==16){
+            double pinkie_min, pinkie_max;
+            ilim -> getLimits(15, &pinkie_min, &pinkie_max);
+            fingers_posture={30., 76., 19., 61.325, 48.588, 116.986, 50.6, 95.389, pinkie_max};
+        }
         switch (naxes) {
             case 3:
                 for (size_t i = 0; i < 3; i++) {
@@ -148,9 +145,9 @@ class ControllerModule: public yarp::os::RFModule, public yarp::os::Thread
                 for (size_t i = 0; i < 7; i++) {
                     poss[i] = interp[3 + i]->operator()(0.);
                 }
-//                for (size_t i = 7; i < 16; i++){
-//                    poss[i] = fingers_posture[i-7]; //for grasping the paddle
-//                }
+                for (size_t i = 7; i < 16; i++){
+                    poss[i] = fingers_posture[i-7]; //for grasping the paddle
+                }
                 break;
             case 6:
                 for (size_t i = 0; i < 6; i++) {
@@ -256,6 +253,8 @@ class ControllerModule: public yarp::os::RFModule, public yarp::os::Thread
             return false;
         }
 
+        y_max = 0.23;
+
         setName((rf.check("name", yarp::os::Value("/study-air-hockey")).asString()).c_str());
         robot = rf.check("robot", yarp::os::Value("icubSim")).asString();
         which_arm = rf.check("arm", yarp::os::Value("left_arm")).asString();
@@ -286,6 +285,7 @@ class ControllerModule: public yarp::os::RFModule, public yarp::os::Thread
 
         targetPort.open(getName() + "/target");
         yposPort.open(getName() + "/ypos");
+        eyePort.open(getName() + "/eye");
         puckPort.open(getName() + "/puck");
         hand_pix_port.open(getName() + "/hand-pixels");
 
@@ -325,6 +325,9 @@ class ControllerModule: public yarp::os::RFModule, public yarp::os::Thread
         if(!output_port.open(getName() + "/LAE:o"))
             return false;
 
+        first_cycle = true;
+        reached = true;
+
         return Thread::start();
     }
 
@@ -334,15 +337,13 @@ class ControllerModule: public yarp::os::RFModule, public yarp::os::Thread
 
         while (Thread::isRunning()) {
 
-//            std::cout << "inside LOOP"<<std::endl;
-            yarp::os::Bottle *b = puckPort.read();
-            u = b->get(0).asInt(); // x coordinate of the pixel within the image plane
-            v = b->get(1).asInt(); // y coordinate of the pixel within the image plane
-            pix_stamp = b->get(2).asDouble();
-            label =  b->get(3).asInt();
-//            puck_tracked = b->get(2).asInt(); //verify if the target is tracked or not
-//            puck_velocity = b->get(3).asDouble(); // puck velocity along y
-            std::cout << "u_puck = " << u << ", v_puck = " << v << std::endl;
+////            std::cout << "inside LOOP"<<std::endl;
+//            yarp::os::Bottle *b = puckPort.read();
+//            u = b->get(0).asInt(); // x coordinate of the pixel within the image plane
+//            v = b->get(1).asInt(); // y coordinate of the pixel within the image plane
+//            pix_stamp = b->get(2).asDouble();
+//            puck_velocity =  b->get(3).asInt();
+//            // std::cout << "u_puck = " << u << ", v_puck = " << v << std::endl;
 
         }
     }
@@ -399,6 +400,7 @@ class ControllerModule: public yarp::os::RFModule, public yarp::os::Thread
 
         targetPort.close();
         yposPort.close();
+        eyePort.close();
         puckPort.close();
         hand_pix_port.close();
         output_port.close();
@@ -422,8 +424,8 @@ class ControllerModule: public yarp::os::RFModule, public yarp::os::Thread
 
         right_bottom.resize(3); left_bottom.resize(3); right_top.resize(3); left_top.resize(3);
 
-        right_bottom[0] = -0.4; left_bottom[0] = -0.4; right_top[0] = -2.23; left_top[0] = -2.23;
-        right_bottom[1] = 0.4; left_bottom[1] = -0.4; right_top[1] = 0.4; left_top[1] = -0.4;
+        right_bottom[0] = -0.3; left_bottom[0] = -0.3; right_top[0] = -2.23; left_top[0] = -2.23;
+        right_bottom[1] = 0.56; left_bottom[1] = -0.56; right_top[1] = 0.56; left_top[1] = -0.56;
         right_bottom[2] = -0.09; left_bottom[2] = -0.09; right_top[2] = -0.09; left_top[2] = -0.09;
 
         right_bottom_pix = projectToVisualSpace(right_bottom);
@@ -445,64 +447,83 @@ class ControllerModule: public yarp::os::RFModule, public yarp::os::Thread
 //            std::cout << "u_hand:" << hand_pix[0] << ", v_hand:" << hand_pix[1] << std::endl;
 
         // BOTTLE for printing the current u and v of the arm and of the puck in the visual space
-        yarp::os::Bottle &hand_pix_bottle = hand_pix_port.prepare();
-        hand_pix_bottle.clear();
-        hand_pix_bottle.addDouble(currentArmPos[1]);
-        hand_pix_bottle.addDouble(hand_pix[0]);
-        hand_pix_bottle.addDouble(hand_pix[1]);
-        hand_pix_bottle.addDouble(right_bottom_vertex[0]);
-        hand_pix_bottle.addDouble(right_bottom_vertex[1]);
-        hand_pix_bottle.addDouble(left_bottom_vertex[0]);
-        hand_pix_bottle.addDouble(left_bottom_vertex[1]);
-        hand_pix_bottle.addDouble(left_top_vertex[0]);
-        hand_pix_bottle.addDouble(left_top_vertex[1]);
-        hand_pix_bottle.addDouble(right_top_vertex[0]);
-        hand_pix_bottle.addDouble(right_top_vertex[1]);
-        std::cout<<"Vertices: (" << right_bottom_vertex[0]<<","<<right_bottom_vertex[1]<<"), ("<<left_bottom_vertex[0]<<","<<left_bottom_vertex[1]<<"), ("<<left_top_vertex[0]<<", "<<left_top_vertex[1]<<"), ("<<right_top_vertex[0]<<", "<<right_top_vertex[1]<<")"<<std::endl;
-
-        hand_pix_port.write();
-
-        double t_start = yarp::os::Time::now();
-        static double t0 = yarp::os::Time::now();
-
-//        std::cout<<"u: "<<u<<", v: "<<v<<", label:"<<label<<std::endl;
-        if (u>0 && u<304 && v>0 && v<240){
-
-            Stamp ystamp;
-            puckPort.getEnvelope(ystamp);
-
-            if (label == 1)
-                ev.ID = 1;
-            else
-                ev.ID = 0;
-            ev.x = u;
-            ev.y = v;
-            ev.stamp = pix_stamp/vtsHelper::tsscaler;
-            out_queue.push_back(ev);
-            output_port.write(out_queue, ystamp);
-            out_queue.clear();
-        }
-
-//        if (v>70){
-            puck_rf = projectToRobotSpace(u, v);
-
-//        yarp::sig::Vector pix_reprojected = projectToVisualSpace(puck_rf);
+//        yarp::os::Bottle &hand_pix_bottle = hand_pix_port.prepare();
+//        hand_pix_bottle.clear();
+//        hand_pix_bottle.addDouble(currentArmPos[1]);
+//        hand_pix_bottle.addDouble(hand_pix[0]);
+//        hand_pix_bottle.addDouble(hand_pix[1]);
+//        hand_pix_bottle.addDouble(right_bottom_vertex[0]);
+//        hand_pix_bottle.addDouble(right_bottom_vertex[1]);
+//        hand_pix_bottle.addDouble(left_bottom_vertex[0]);
+//        hand_pix_bottle.addDouble(left_bottom_vertex[1]);
+//        hand_pix_bottle.addDouble(left_top_vertex[0]);
+//        hand_pix_bottle.addDouble(left_top_vertex[1]);
+//        hand_pix_bottle.addDouble(right_top_vertex[0]);
+//        hand_pix_bottle.addDouble(right_top_vertex[1]);
+//        if (reached)
+//            hand_pix_bottle.addInt(1);
+//        else
+//            hand_pix_bottle.addInt(0);
+////        std::cout<<"Vertices: (" << right_bottom_vertex[0]<<","<<right_bottom_vertex[1]<<"), ("<<left_bottom_vertex[0]<<","<<left_bottom_vertex[1]<<"), ("<<left_top_vertex[0]<<", "<<left_top_vertex[1]<<"), ("<<right_top_vertex[0]<<", "<<right_top_vertex[1]<<")"<<std::endl;
 //
-//        double u_check = 152;
-//        double v_check = 120;
-//        yarp::sig::Vector projection_check = projectToRobotSpace(u_check, v_check);
-
-            target = puck_rf[1];
-
-//        std::cout<< "y TARGET: "<<puck_rf[1]<<std::endl;
-
-            if (target > y_max)
-                target = y_max;
-            if (target < y_min)
-                target = y_min;
+//        hand_pix_port.write();
+//
+//        double t_start = yarp::os::Time::now();
+//        static double t0 = yarp::os::Time::now();
+//
+////        std::cout<<"u: "<<u<<", v: "<<v<<", label:"<<label<<std::endl;
+////        if (u>0 && u<304 && v>0 && v<240) {
+////
+//////            Stamp ystamp;
+//////            puckPort.getEnvelope(ystamp);
+//////
+//////            if (label == 1)
+//////                ev.ID = 1;
+//////            else
+//////                ev.ID = 0;
+//////            ev.x = u;
+//////            ev.y = v;
+//////            ev.stamp = pix_stamp / vtsHelper::tsscaler;
+//////            out_queue.push_back(ev);
+//////            output_port.write(out_queue, ystamp);
+//////            out_queue.clear();
+////
+////            if (v>70 && puck_velocity>0) {
+////
+////                puck_rf = projectToRobotSpace(u, v);
+////
+////                //        yarp::sig::Vector pix_reprojected = projectToVisualSpace(puck_rf);
+////                //
+////                //        double u_check = 152;
+////                //        double v_check = 120;
+////                //        yarp::sig::Vector projection_check = projectToRobotSpace(u_check, v_check);
+////
+////                target = puck_rf[1];
+////
+////                //        std::cout<< "y TARGET: "<<puck_rf[1]<<std::endl;
+////
+////                if (target > y_max)
+////                    target = y_max;
+////                if (target < y_min)
+////                    target = y_min;
+////
+////                mobility_condition = true;
+////            }
+////            else if (v>70 && puck_velocity<0){
+////                target = 0;
+////
+////                mobility_condition = false;
+////            }
+////        }
+//
+//        if (first_cycle){
+//            target = y_max;
+//            first_cycle = false;
 //        }
 
-        genLinTraj.computeCoeff(target);
+        reached = genLinTraj.computeCoeff(target);
+
+//        std::cout<<"target reached: "<<reached<<std::endl;
 
         std::vector<double> pos_torso(3);
         for (size_t i = 0; i < pos_torso.size(); i++) {
@@ -530,15 +551,46 @@ class ControllerModule: public yarp::os::RFModule, public yarp::os::Thread
         ypos_bottle.clear();
         ypos_bottle.addDouble(x_actual[1]);
         ypos_bottle.addDouble(puck_rf[1]);
-        ypos_bottle.addDouble(u);
+//        ypos_bottle.addDouble(u);
 //        ypos_bottle.addDouble(puck_velocity);
-//        ypos_bottle.addDouble(mobility_condition);
+        ypos_bottle.addDouble(mobility_condition);
         yposPort.write();
 
-        myFile1 << yarp::os::Time::now() - t_start << std::endl;
-        myFile2 << x_actual[1] << " " << puck_rf[1] << " "<< u<< " "<<yarp::os::Time::now() - t0<<std::endl;
-//        myFile3 << projection_check[1]<<" "<<u<<" "<<pix_reprojected[1]<<" "<<v<<" "<<pix_reprojected[0]<<" "<<yarp::os::Time::now() - t0<< std::endl;
+        if(abs(x_actual[1]-target)<0.02){
+            if(target==y_max)
+                target = y_min;
+            else
+                target = y_max;
+        }
 
+        gaze->getRightEyePose(eye_pos, eye_orient);
+        gaze->getHeadPose(head_pos, head_orient);
+
+        yarp::os::Bottle &eye_bottle = eyePort.prepare();
+        eye_bottle.clear();
+        eye_bottle.addDouble(eye_pos[0]);
+        eye_bottle.addDouble(eye_pos[1]);
+        eye_bottle.addDouble(eye_pos[2]);
+        eye_bottle.addDouble(eye_orient[0]);
+        eye_bottle.addDouble(eye_orient[1]);
+        eye_bottle.addDouble(eye_orient[2]);
+        eye_bottle.addDouble(eye_orient[3]);
+        eye_bottle.addDouble(head_pos[0]);
+        eye_bottle.addDouble(head_pos[1]);
+        eye_bottle.addDouble(head_pos[2]);
+        eye_bottle.addDouble(head_orient[0]);
+        eye_bottle.addDouble(head_orient[1]);
+        eye_bottle.addDouble(head_orient[2]);
+        eye_bottle.addDouble(head_orient[3]);
+        eyePort.write();
+
+//        std::cout<<"min and max"<<y_min<<", "<<y_max<<std::endl;
+//
+//        std::cout<<"diff: "<<abs(x_actual[1]-target)<<std::endl;
+
+//        myFile1 << yarp::os::Time::now() - t_start << std::endl;
+//        myFile2 << x_actual[1] << " " << puck_rf[1] << " "<< u<< " "<<yarp::os::Time::now() - t0<<std::endl;
+//        myFile3 << projection_check[1]<<" "<<u<<" "<<pix_reprojected[1]<<" "<<v<<" "<<pix_reprojected[0]<<" "<<yarp::os::Time::now() - t0<< std::endl;
 
         return true;
 
