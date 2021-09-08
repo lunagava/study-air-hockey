@@ -42,14 +42,14 @@ private:
     yarp::os::BufferedPort<yarp::os::Bottle> eye_port, velPort;
 
     double x_eye, y_eye, z_eye, xa_eye, ya_eye, za_eye, theta_eye;
-    double x_eye_prev, y_eye_prev, z_eye_prev, t_prev;
+    double x_eye_prev, y_eye_prev, z_eye_prev, t_eye_prev;
     double diff_x, diff_y, diff_z, vx, vy, vz, wx, wy, wz;
-    yarp::sig::Matrix R_eye, R_eye_prev, diff_R;
+    yarp::sig::Matrix R_eye;
     double time_eye;
     double dT;
     double diff_roll, diff_pitch, diff_yaw;
+    double t_prev;
     yarp::sig::Vector angles_eye, angles_eye_prev;
-//    deque<AE> queue_events;
 
 //    BufferedPort< Vector > scope_port;
 
@@ -110,11 +110,11 @@ public:
 
         velPort.open(getName() + "/velocities:o");
 
-        diff_R = yarp::math::zeros(3,3);
         R_eye = yarp::math::zeros(3,3);
-        R_eye_prev = yarp::math::zeros(3,3);
         angles_eye.resize(3);
         angles_eye_prev.resize(3);
+
+        t_prev = yarp::os::Time::now();
 
         //start the asynchronous and synchronous threads
         return Thread::start();
@@ -171,32 +171,96 @@ public:
             debug_image.at<cv::Vec3f>(y_hat, x_hat) = cv::Vec3f(angle, 255.0f, magnitude);
     }
 
-    void visualizeLines(int x, int y, double flow_x, double flow_y, int ms, cv::Mat masker, cv::Mat arrow_image){
+    void visualizeLines(int x, int y, double flow_x, double flow_y, int ms, cv::Mat masker, cv::Mat arrow_image, double elapsed_time){
 
         int xl = std::max(x-ms, 0); int xh = std::min(x+ms, masker.cols);
         int yl = std::max(y-ms, 0); int yh = std::min(y+ms, masker.rows);
 
         masker(cv::Rect(cv::Point(xl, yl), cv::Point(xh, yh))).setTo(0);
 
-        cv::line(arrow_image, cv::Point(x, y), cv::Point(x+flow_x*period, y+flow_y*period), CV_RGB(255,255,255));
+        cv::line(arrow_image, cv::Point(x, y), cv::Point(x+flow_x*elapsed_time, y+flow_y*elapsed_time), CV_RGB(255,255,255));
         //                debug_image.at<cv::Vec3f>(v.y, v.x) = cv::Vec3f(180.0f, 255.0f, 255.0f);
-
     }
 
     void visualizeCompensatedEdges(int x, int y, double stamp, double last_ts, double flow_x, double flow_y, cv::Mat compensated_image){
 
-        double deltaT = last_ts - stamp;
+        double deltaT = ev::vtsHelper::deltaS(stamp, last_ts);
+        //double deltaT = (stamp - stamp)*vtsHelper::tstosecs();
 
-        double x_hat = x + flow_x*deltaT;
-        double y_hat = y + flow_y*deltaT;
+        double x_hat = x - flow_x*deltaT;
+        double y_hat = y - flow_y*deltaT;
 
-        compensated_image.at<float>(y_hat, x_hat) = 255;
+        if(y_hat > 0 && y_hat < compensated_image.rows-1 && x_hat > 0 && x_hat < compensated_image.cols-1)
+            compensated_image.at<unsigned char>(y_hat, x_hat) = 255;
+
+//        std::cout<<"Reprojection: x="<<x_hat<<", y="<<y_hat<<", flow_x="<<flow_x<<", flow_y="<<flow_y<<" deltaT="<<deltaT<<std::endl;
 
     }
 
     //synchronous thread
     virtual bool updateModule()
     {
+
+        yarp::os::Bottle *eye_status = eye_port.read();
+        // position
+        x_eye = eye_status->get(0).asDouble();
+        y_eye = eye_status->get(1).asDouble();
+        z_eye = eye_status->get(2).asDouble();
+        // orientation in axis-angle representation
+        xa_eye = eye_status->get(3).asDouble();
+        ya_eye = eye_status->get(4).asDouble();
+        za_eye = eye_status->get(5).asDouble();
+        theta_eye = eye_status->get(6).asDouble();
+        time_eye = eye_status->get(7).asDouble();
+
+        yarp::sig::Vector o_eye;
+        o_eye.resize(4);
+        o_eye[0]=xa_eye;
+        o_eye[1]=ya_eye;
+        o_eye[2]=za_eye;
+        o_eye[3]=theta_eye;
+
+        R_eye = yarp::math::axis2dcm(o_eye);
+
+        angles_eye = yarp::math::dcm2rpy(R_eye);
+
+        diff_x = x_eye - x_eye_prev;
+        diff_y = y_eye - y_eye_prev;
+        diff_z = z_eye - z_eye_prev;
+        diff_yaw = angles_eye[0]-angles_eye_prev[0]; //z
+        diff_pitch = angles_eye[1]-angles_eye_prev[1]; //y
+        diff_roll = angles_eye[2]-angles_eye_prev[2]; //x
+        dT = time_eye - t_eye_prev;
+
+        vx = diff_x/dT;
+        vy = diff_y/dT;
+        vz = diff_z/dT;
+        wx = diff_roll/dT;
+        wy = diff_pitch/dT;
+        wz = diff_yaw/dT;
+
+//            std::cout<<"vx="<<vx<<", vy="<<vy<<",vz="<<vz<<",wx="<<wx<<",wy="<<wy<<",wz="<<wz<<std::endl;
+
+        x_eye_prev = x_eye;
+        y_eye_prev = y_eye;
+        z_eye_prev = z_eye;
+        t_eye_prev = time_eye;
+        angles_eye_prev[0]=angles_eye[0];
+        angles_eye_prev[1]=angles_eye[1];
+        angles_eye_prev[2]=angles_eye[2];
+
+//        yarp::os::Bottle &vel_bottle = velPort.prepare();
+//        vel_bottle.clear();
+//        vel_bottle.addDouble(vx);
+//        vel_bottle.addDouble(vy);
+//        vel_bottle.addDouble(vz);
+//        vel_bottle.addDouble(wx);
+//        vel_bottle.addDouble(wy);
+//        vel_bottle.addDouble(wz);
+//
+//        velPort.write();
+//
+//        std::cout<<std::endl;
 
         Stamp yarpstamp_flow;
         vector<double> vel_eye_frame;
@@ -207,7 +271,9 @@ public:
         vel_eye_frame.push_back(-wx);
         vel_eye_frame.push_back(wy);
 
-//        double last_ts;
+        double last_ts;
+        double flow_x, flow_y;
+        std::vector<cv::Point> velocity;
         static const int ms = 10;
         cv::Mat masker(res.height, res.width, CV_8U);
         masker.setTo(1);
@@ -215,7 +281,11 @@ public:
         debug_image.setTo(cv::Scalar(0, 0, 0));
         cv::Mat arrow_image(res.height, res.width, CV_8UC3);
         arrow_image.setTo(0);
+        cv::Mat compensated_image(res.height, res.width, CV_8U);
+        compensated_image.setTo(0);
         //add any synchronous operations here, visualisation, debug out prints
+        double elapsed_time = yarp::os::Time::now() - t_prev;
+        t_prev = yarp::os::Time::now();
         int fstamp = -1;
         int n_packets = input_port.queryunprocessed();
         for(auto i = 0; i < n_packets; i++) {
@@ -224,52 +294,20 @@ public:
             if(!q_flow || Thread::isStopping()) return false;
 
             for(auto &v : *q_flow) {
-//                queue_events.push_back(v);
-                if(fstamp < 0)fstamp=v.stamp;
 
-                double flow_x, flow_y;
+                if(fstamp < 0)fstamp = v.stamp;
+
                 getOpticalFlow(v.x, v.y, 1, vel_eye_frame, flow_x, flow_y);
 
-                //                cv::Mat magnitude, angle, magn_norm;
-                //                cv::cartToPolar(flow_x, flow_y, magnitude, angle, true);
-                double magnitude = sqrt(flow_x*flow_x+flow_y*flow_y)/200.0 * 255.0;
-                //yInfo()<<v.x<<v.y<<magnitude/255.0;
-                if(magnitude > 255.0) magnitude = 255.0f;
+                visualizeCompensatedEdges(v.x, v.y, v.stamp, fstamp, flow_x, flow_y, compensated_image);
 
-                double angle = atan2(flow_y, flow_x);
-                //                cv::normalize(magnitude, magn_norm, 0.0f, 1.0f, cv::NORM_MINMAX);
-                angle = 180.0*(angle + M_PI)/(2.0*M_PI);
-
-                int y_hat = v.y - flow_y*vtsHelper::deltaS(v.stamp, fstamp) + 0.5;
-                int x_hat = v.x - flow_x*vtsHelper::deltaS(v.stamp, fstamp) + 0.5;
-                if(y_hat > 0 && y_hat < debug_image.rows-1 && x_hat > 0 && x_hat < debug_image.cols)
-                    debug_image.at<cv::Vec3f>(y_hat, x_hat) = cv::Vec3f(angle, 255.0f, magnitude);
-
+                visualizeColor(v.x,v.y,v.stamp,flow_x,flow_y,fstamp,debug_image);
                 if(masker.at<unsigned char>(v.y, v.x) == 0)
                     continue;
+                visualizeLines(v.x,v.y,flow_x,flow_y,ms,masker,arrow_image, elapsed_time);
 
-                int xl = std::max(v.x-ms, 0); int xh = std::min(v.x+ms, masker.cols);
-                int yl = std::max(v.y-ms, 0); int yh = std::min(v.y+ms, masker.rows);
-
-                masker(cv::Rect(cv::Point(xl, yl), cv::Point(xh, yh))).setTo(0);
-
-                cv::line(arrow_image, cv::Point(v.x, v.y), cv::Point(v.x+flow_x*period, v.y+flow_y*period), CV_RGB(255,255,255));
-                //                debug_image.at<cv::Vec3f>(v.y, v.x) = cv::Vec3f(180.0f, 255.0f, 255.0f);
-
-//                visualizeColor(v.x,v.y,v.stamp,flow_x,flow_y,fstamp,debug_image);
-//                if(masker.at<unsigned char>(v.y, v.x) == 0)
-//                    continue;
-//                visualizeLines(v.x,v.y,flow_x,flow_y,ms,masker,arrow_image);
-
-//                last_ts = v.stamp;
             }
         }
-
-//        for (int i=0; i<queue_events.size(); i++){
-//            if(fstamp < 0)fstamp=queue_events[i].stamp;
-//
-//            visualizeCompensatedEdges(queue_events[i].x, queue_events[i].y, queue_events[i].stamp, last_ts, flow_x, flow_y, compensated_image);
-//        }
 
         //perform prediction with Image Jacobian
 
@@ -281,16 +319,13 @@ public:
 
         arrow_image.copyTo(bgr, arrow_image);
 
-
         cv::namedWindow("imu prediction", cv::WINDOW_NORMAL);
         cv::imshow("imu prediction", bgr);
+
+        cv::namedWindow("compensated edges", cv::WINDOW_NORMAL);
+        cv::imshow("compensated edges", compensated_image);
+
         cv::waitKey(3);
-
-//        cv::namedWindow("compensated edges", cv::WINDOW_NORMAL);
-//        cv::imshow("compensated edges", compensated_image);
-//        cv::waitKey(3);
-
-//        queue_events.clear();
 
         return Thread::isRunning();
     }
@@ -298,97 +333,8 @@ public:
     //asynchronous thread run forever
     void run()
     {
-
         while (Thread::isRunning()) {
 
-            yarp::os::Bottle *eye_status = eye_port.read();
-            // position
-            x_eye = eye_status->get(0).asDouble();
-            y_eye = eye_status->get(1).asDouble();
-            z_eye = eye_status->get(2).asDouble();
-            // orientation in axis-angle representation
-            xa_eye = eye_status->get(3).asDouble();
-            ya_eye = eye_status->get(4).asDouble();
-            za_eye = eye_status->get(5).asDouble();
-            theta_eye = eye_status->get(6).asDouble();
-            time_eye = eye_status->get(7).asDouble();
-
-            yarp::sig::Vector o_eye;
-            o_eye.resize(4);
-            o_eye[0]=xa_eye;
-            o_eye[1]=ya_eye;
-            o_eye[2]=za_eye;
-            o_eye[3]=theta_eye;
-
-            R_eye = yarp::math::axis2dcm(o_eye);
-
-            angles_eye = yarp::math::dcm2rpy(R_eye);
-
-            std::cout<< "Input position eye frame= "<<x_eye<<" "<< y_eye << " "<<z_eye<<", orientation "<<xa_eye<<" " << ya_eye<<" "<<za_eye<<" "<<theta_eye<<std::endl;
-            std::cout<< "dT="<<dT<<std::endl;
-            std::cout<<"Angles: "<<angles_eye[0]<<" "<<angles_eye[1]<<" "<<angles_eye[2]<<std::endl;
-//            std::cout << "R="<<R_eye(0,0)<<" "<<R_eye(0,1)<<" "<<R_eye(0,2)<<std::endl;
-//            std::cout << R_eye(1,0)<<" "<<R_eye(1,1)<<" "<<R_eye(1,2)<<std::endl;
-//            std::cout << R_eye(2,0)<<" "<<R_eye(2,1)<<" "<<R_eye(2,2)<<std::endl;
-
-            diff_x = x_eye - x_eye_prev;
-            diff_y = y_eye - y_eye_prev;
-            diff_z = z_eye - z_eye_prev;
-            diff_yaw = angles_eye[0]-angles_eye_prev[0]; //z
-            diff_pitch = angles_eye[1]-angles_eye_prev[1]; //y
-            diff_roll = angles_eye[2]-angles_eye_prev[2]; //x
-            dT = time_eye - t_prev;
-//            diff_R(0,0) = (R_eye(0,0) - R_eye_prev(0,0))/dT;
-//            diff_R(0,1) = (R_eye(0,1) - R_eye_prev(0,1))/dT;
-//            diff_R(0,2) = (R_eye(0,2) - R_eye_prev(0,2))/dT;
-//            diff_R(1,0) = (R_eye(1,0) - R_eye_prev(1,0))/dT;
-//            diff_R(1,1) = (R_eye(1,1) - R_eye_prev(1,1))/dT;
-//            diff_R(1,2) = (R_eye(1,2) - R_eye_prev(1,2))/dT;
-//            diff_R(2,0) = (R_eye(2,0) - R_eye_prev(2,0))/dT;
-//            diff_R(2,1) = (R_eye(2,1) - R_eye_prev(2,1))/dT;
-//            diff_R(2,2) = (R_eye(2,2) - R_eye_prev(2,2))/dT;
-
-//            std::cout << "dR/dT="<<diff_R(0,0)<<" "<<diff_R(0,1)<<" "<<diff_R(0,2)<<std::endl;
-//            std::cout << diff_R(1,0)<<" "<<diff_R(1,1)<<" "<<diff_R(1,2)<<std::endl;
-//            std::cout << diff_R(2,0)<<" "<<diff_R(2,1)<<" "<<diff_R(2,2)<<std::endl;
-
-//            std::cout<<"check wx: "<< diff_R(2,1) <<" "<<-diff_R(1,2)<<std::endl;
-//            std::cout<<"check wy: "<< diff_R(0,2) <<" "<<-diff_R(2,0)<<std::endl;
-//            std::cout<<"check wz: "<< diff_R(1,0) <<" "<<-diff_R(0,1)<<std::endl;
-
-            vx = diff_x/dT;
-            vy = diff_y/dT;
-            vz = diff_z/dT;
-            wx = diff_roll/dT;
-            wy = diff_pitch/dT;
-            wz = diff_yaw/dT;
-//            wx = diff_R(2,1);
-//            wy = diff_R(0,2);
-//            wz = diff_R(1,0);
-
-            std::cout<<"vx="<<vx<<", vy="<<vy<<",vz="<<vz<<",wx="<<wx<<",wy="<<wy<<",wz="<<wz<<std::endl;
-
-            x_eye_prev = x_eye;
-            y_eye_prev = y_eye;
-            z_eye_prev = z_eye;
-            R_eye_prev = R_eye;
-            t_prev = time_eye;
-            angles_eye_prev[0]=angles_eye[0];
-            angles_eye_prev[1]=angles_eye[1];
-            angles_eye_prev[2]=angles_eye[2];
-
-            yarp::os::Bottle &vel_bottle = velPort.prepare();
-            vel_bottle.clear();
-            vel_bottle.addDouble(vx);
-            vel_bottle.addDouble(vy);
-            vel_bottle.addDouble(vz);
-            vel_bottle.addDouble(wx);
-            vel_bottle.addDouble(wy);
-            vel_bottle.addDouble(wz);
-
-            velPort.write();
-
-            std::cout<<std::endl;
 
         }
     }

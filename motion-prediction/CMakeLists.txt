@@ -7,7 +7,7 @@ project(motion-prediction)
 find_package(event-driven REQUIRED)
 find_package(YARP 3.3.0 REQUIRED COMPONENTS os sig dev math)
 find_package(ICUB REQUIRED COMPONENTS ctrlLib)
-find_package(ICUBcontrib REQUIRED)
+#find_package(ICUBcontrib REQUIRED)
 find_package(Python3 COMPONENTS Development NumPy)
 find_package(OpenCV REQUIRED)
 
