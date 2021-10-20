@@ -1,0 +1,62 @@
+<application>
+<name>vHarrisDemo</name>
+
+<dependencies>
+</dependencies>
+
+<module>
+    <name> atis-bridge-sdk </name>
+    <parameters>  </parameters>
+    <node> localhost </node>
+</module>
+
+<module>
+    <name> vPreProcess </name>
+    <parameters>--undistort --flipx --flipy --temporalSize 0.05 --split_stereo false --combined_stereo true</parameters>
+    <node> localhost </node>
+</module>
+
+<module>
+    <name> luvharris </name>
+    <parameters> --width 640 --height 480 --vis </parameters>
+    <node> localhost </node>
+</module>
+
+<module>
+    <name> vFramerLite</name>
+    <parameters> --displays "(/left (AE ISO))" </parameters>
+    <node> localhost </node>
+</module> 
+
+<module>
+   <name> yarpview </name>
+   <parameters>--name /viewLeft --x 30 --y 30 --w 640 --h 480 --synch </parameters>
+   <node> localhost </node>
+</module>
+
+<connection>
+  <from>/atis3/AE:o</from>
+  <to>/vPreProcess/AE:i</to>
+  <protocol>fast_tcp</protocol>
+</connection>
+
+<connection>
+  <from>/vPreProcess/left:o</from>
+  <to>//vFramer/left/AE:i</to>
+  <protocol>fast_tcp</protocol>
+</connection>
+
+<connection>
+  <from>/vFramer/left/image:o</from>
+  <to>/viewLeft</to>
+  <protocol>fast_tcp</protocol>
+</connection>
+
+<connection>
+  <from>/vPreProcess/left:o</from>
+  <to>/luvharris/AE:i</to>
+  <protocol>fast_tcp</protocol>
+</connection>
+
+
+</application>
