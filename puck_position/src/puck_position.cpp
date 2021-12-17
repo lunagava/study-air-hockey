@@ -36,56 +36,15 @@ bool puckPosModule::configure(yarp::os::ResourceFinder& rf) {
     if (!input_port.open(getName() + "/AE:i"))
         return false;
 
-    imsize.width = w;
-    imsize.height = h;
-    filter_width = 11;
-    double fw2 = (double)filter_width/2.0;
+    EROS_vis.init(w, h, 5, 0.3);
 
-    EROS_vis.init(imsize.width, imsize.height, 5, 0.3);
-
-    Mat g1 = getGaussianKernel(filter_width, filter_width*0.6, CV_32F) * getGaussianKernel(filter_width, filter_width*0.6, CV_32F).t();
-    cv::normalize(g1, g1, 1, 0, cv::NORM_MINMAX);
-    Mat g2 = getGaussianKernel(filter_width, filter_width*0.4, CV_32F) * getGaussianKernel(filter_width, filter_width*0.4, CV_32F).t();
-    cv::normalize(g2, g2, 1, 0, cv::NORM_MINMAX);
-    dog_filter = g1;// - g2;
-
-    dog_filter = cv::Mat::zeros(filter_width, filter_width, CV_8U);
-//    cv::circle(dog_filter, cv::Point(filter_width/2, filter_width/2), filter_width/2, 1, 1);
-
-    dog_filter.convertTo(dog_filter, CV_32F);
-    for(int x = 0; x < dog_filter.cols; x++) {
-        for(int y = 0; y < dog_filter.rows; y++) {
-//            if(dog_filter.at<float>(y, x))
-//                    continue;
-            float &p = dog_filter.at<float>(y, x);
-            double res = sqrt(pow(x-filter_width/2, 2.0) + pow(y-filter_width/2, 2.0));
-            if(res > fw2-1 + 1)
-                p = 0.0;
-            else if (res < fw2-1 - 1)
-                p = -1.0;
-            else
-                p = 1.0;
-        }
-    }
-
-
-    //dog_filter -= 1;
-
-    roi_init = cv::Rect(20, 80, 264, 40);
-
-    cv::Mat temp;
-    cv::normalize(dog_filter, temp, 1, 0, cv::NORM_MINMAX);
-//
-//    cv::Mat dog_vis;
-//   dog_filter.convertTo(dog_vis, CV_8U, 255);
-    cv::namedWindow("DoG", cv::WINDOW_NORMAL);
-    cv::imshow("DoG", temp);
-    cv::waitKey(0);
-
-
-    //return false;
+    roi_init = cv::Rect(20, 150, 550, 80);
 
     yarp::os::Network::connect("/atis3/AE:o", getName("/AE:i"), "fast_tcp");
+
+    cv::Mat temp = EROS_vis.getSurface();
+    eros_thread.initialise(temp);
+    eros_thread.start();
 
     return Thread::start();
 }
@@ -98,51 +57,19 @@ void puckPosModule::run() {
         if (qs > 1)
             yWarning() << qs;
 
-        for(int i = 0; i < qs; i++) {
+        //for(int i = 0; i < qs; i++) {
 
             ev::packet<AE> *q = input_port.read();
             if (!q) return;
             for(auto &v : *q){
 
+//                if (v.stamp >= p0.start_ts)
+//                  if (v.x > p0.start_x - roi_width && v.x < p0.start_x + roi_width && v.y > p0.start_y - roi_height && v.y < p0.start_y + roi_height)
+
                 // call EROSupdate
                 success = EROS_vis.EROSupdate(v.x, v.y);
             }
-        }
-
-        // get surface
-        EROS_vis.getSurface().copyTo(surface_matrix);
-        cv::GaussianBlur(surface_matrix, surface_matrix, cv::Size(5, 5), 0);
-
-        // visualize TOS
-        cv::namedWindow("TOS", cv::WINDOW_NORMAL);
-        cv::imshow("TOS", surface_matrix);
-
-        surface_matrix.convertTo(surface_matrix, CV_32F);
-
-        // do convolution
-        cv::filter2D(surface_matrix, result_conv, -1, dog_filter, cv::Point(-1, -1), 0, cv::BORDER_ISOLATED);
-
-        cv::minMaxLoc(result_conv, &min, &max, &min_loc, &max_loc);
-        yInfo() << max;
-
-        //cv::normalize(result_conv, result_conv, 255, 0, cv::NORM_MINMAX);
-        result_conv *= (255.0/5000.0);
-        cv::Mat result_vis;
-        result_conv.convertTo(result_vis, CV_8U);
-
-        cv::cvtColor(result_vis, result_vis, cv::COLOR_GRAY2BGR);
-//        // find the highest peak
-
-        if(max > 1500)
-            cv::circle(result_vis, max_loc, 5, cv::Scalar(255, 0, 0), cv::FILLED);
-
-        cv::rectangle(result_vis, roi_init, cv::Scalar(0, 255, 0), 1);
-
-        cv::namedWindow("RESULT", cv::WINDOW_NORMAL);
-        cv::imshow("RESULT", result_vis);
-        cv::waitKey(3);
-
-
+        //}
 
 
     }
@@ -154,15 +81,101 @@ double puckPosModule::getPeriod() {
 
 bool puckPosModule::updateModule() {
 
+    cv::waitKey(1);
     return Thread::isRunning();
 }
 
 bool puckPosModule::interruptModule() {
+    eros_thread.stop();
     return Thread::stop();
 }
 
 void puckPosModule::onStop() {
+    eros_thread.stop();
     input_port.close();
+}
+
+void asynch_thread::initialise(cv::Mat &eros)
+{
+
+    this->eros = eros; //shallow copy (i.e. pointer)
+
+    int filter_width = 23;
+    double fw2 = (double)filter_width/2.0;
+    dog_filter = cv::Mat (filter_width, filter_width, CV_32F);
+
+    for(int x = 0; x < dog_filter.cols; x++) {
+        for(int y = 0; y < dog_filter.rows; y++) {
+            float &p = dog_filter.at<float>(y, x);
+            double res = sqrt(pow(x-filter_width/2, 2.0) + pow(y-filter_width/2, 2.0));
+            if(res > fw2-1 + 1.5)
+                p = 0.0;
+            else if (res < fw2-1 - 1.5)
+                p = -1.0;
+            else
+                p = 1.0;
+        }
+    }
+    cv::Mat temp;
+    cv::normalize(dog_filter, temp, 1, 0, cv::NORM_MINMAX);
+
+    cv::namedWindow("DoG", cv::WINDOW_NORMAL);
+    cv::imshow("DoG", temp);
+    cv::waitKey(1);
+}
+
+void asynch_thread::run() {
+
+    cv::Mat intern, surface_matrix;
+    double min, max;
+    cv::Point min_loc, max_loc;
+    Mat result_conv, result_vis;
+
+    while(!isStopping())
+    {
+
+        // get surface;
+        cv::GaussianBlur(eros, intern, cv::Size(7, 7), 0);
+
+        intern.convertTo(surface_matrix, CV_32F);
+
+        // do convolution
+        cv::filter2D(surface_matrix, result_conv, -1, dog_filter, cv::Point(-1, -1), 0, cv::BORDER_ISOLATED);
+
+//        cv::Rect();
+
+        cv::minMaxLoc(result_conv, &min, &max, &min_loc, &max_loc);
+//        yInfo() << max;
+
+       cv::normalize(result_conv, result_conv, 255, 0, cv::NORM_MINMAX);
+//        result_conv *= (255.0/3000.0);
+//        cv::Mat result_vis;
+        result_conv.convertTo(result_vis, CV_8U);
+
+        cv::cvtColor(result_vis, result_vis, cv::COLOR_GRAY2BGR);
+//        // find the highest peak
+
+//        if(max > 3000)
+            cv::circle(result_vis, max_loc, 5, cv::Scalar(255, 0, 0), cv::FILLED);
+//
+//        cv::rectangle(result_vis, roi_init, cv::Scalar(0, 255, 0), 1);
+
+        // setROI of the next EROS...
+//        p0.start_x = p0.start_x + displacement;
+//        p0.start_y = p0.start_y + displacement;
+
+//        cv::namedWindow("RESULT", cv::WINDOW_NORMAL);
+//        cv::imshow("RESULT", result_vis);
+//        cv::waitKey(3);
+
+        // visualize EROS
+        cv::namedWindow("EROS", cv::WINDOW_NORMAL);
+        cv::imshow("EROS", intern);
+
+        cv::namedWindow("RESULT", cv::WINDOW_NORMAL);
+        cv::imshow("RESULT", result_vis);
+    }
+
 }
 
 int main(int argc, char *argv[]) {

@@ -4,7 +4,7 @@ set(CMAKE_DEPENDS_LANGUAGES
   )
 # The set of files for implicit dependencies of each language:
 set(CMAKE_DEPENDS_CHECK_CXX
-  "/code/puck_position/src/puck_position.cpp" "/code/puck_position/cmake-build-debug/CMakeFiles/puck_position.dir/src/puck_position.cpp.o"
+  "/code/luna/study-air-hockey/puck_position/src/puck_position.cpp" "/code/luna/study-air-hockey/puck_position/cmake-build-debug/CMakeFiles/puck_position.dir/src/puck_position.cpp.o"
   )
 set(CMAKE_CXX_COMPILER_ID "GNU")
 
@@ -17,7 +17,7 @@ set(CMAKE_TARGET_DEFINITIONS_CXX
 set(CMAKE_CXX_TARGET_INCLUDE_PATH
   "../include"
   "/usr/local/src/event-driven/ev2/include"
-  "/usr/include/opencv4"
+  "/usr/include/opencv"
   )
 
 # Targets to which this target links.

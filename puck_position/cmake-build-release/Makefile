@@ -67,10 +67,10 @@ RM = /apps/CLion-2021.1.1/clion-2021.1.1/bin/cmake/linux/bin/cmake -E rm -f
 EQUALS = =
 
 # The top-level source directory on which CMake was run.
-CMAKE_SOURCE_DIR = /code/puck_position
+CMAKE_SOURCE_DIR = /code/luna/study-air-hockey/puck_position
 
 # The top-level build directory on which CMake was run.
-CMAKE_BINARY_DIR = /code/puck_position/cmake-build-release
+CMAKE_BINARY_DIR = /code/luna/study-air-hockey/puck_position/cmake-build-release
 
 #=============================================================================
 # Targets provided globally by CMake.
@@ -145,9 +145,9 @@ list_install_components/fast: list_install_components
 
 # The main all target
 all: cmake_check_build_system
-	$(CMAKE_COMMAND) -E cmake_progress_start /code/puck_position/cmake-build-release/CMakeFiles /code/puck_position/cmake-build-release//CMakeFiles/progress.marks
+	$(CMAKE_COMMAND) -E cmake_progress_start /code/luna/study-air-hockey/puck_position/cmake-build-release/CMakeFiles /code/luna/study-air-hockey/puck_position/cmake-build-release//CMakeFiles/progress.marks
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/Makefile2 all
-	$(CMAKE_COMMAND) -E cmake_progress_start /code/puck_position/cmake-build-release/CMakeFiles 0
+	$(CMAKE_COMMAND) -E cmake_progress_start /code/luna/study-air-hockey/puck_position/cmake-build-release/CMakeFiles 0
 .PHONY : all
 
 # The main clean target

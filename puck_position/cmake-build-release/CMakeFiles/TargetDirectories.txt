@@ -1,7 +1,7 @@
-/code/puck_position/cmake-build-release/CMakeFiles/install/strip.dir
-/code/puck_position/cmake-build-release/CMakeFiles/install/local.dir
-/code/puck_position/cmake-build-release/CMakeFiles/puck_position.dir
-/code/puck_position/cmake-build-release/CMakeFiles/edit_cache.dir
-/code/puck_position/cmake-build-release/CMakeFiles/rebuild_cache.dir
-/code/puck_position/cmake-build-release/CMakeFiles/install.dir
-/code/puck_position/cmake-build-release/CMakeFiles/list_install_components.dir
+/code/luna/study-air-hockey/puck_position/cmake-build-release/CMakeFiles/install/strip.dir
+/code/luna/study-air-hockey/puck_position/cmake-build-release/CMakeFiles/install/local.dir
+/code/luna/study-air-hockey/puck_position/cmake-build-release/CMakeFiles/puck_position.dir
+/code/luna/study-air-hockey/puck_position/cmake-build-release/CMakeFiles/edit_cache.dir
+/code/luna/study-air-hockey/puck_position/cmake-build-release/CMakeFiles/rebuild_cache.dir
+/code/luna/study-air-hockey/puck_position/cmake-build-release/CMakeFiles/install.dir
+/code/luna/study-air-hockey/puck_position/cmake-build-release/CMakeFiles/list_install_components.dir

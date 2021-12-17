@@ -1,4 +1,4 @@
-# Install script for directory: /code/puck_position
+# Install script for directory: /code/luna/study-air-hockey/puck_position
 
 # Set the install prefix
 if(NOT DEFINED CMAKE_INSTALL_PREFIX)
@@ -49,7 +49,7 @@ if("x${CMAKE_INSTALL_COMPONENT}x" STREQUAL "xUnspecifiedx" OR NOT CMAKE_INSTALL_
          FILE "$ENV{DESTDIR}${CMAKE_INSTALL_PREFIX}/bin/puck_position"
          RPATH "$ORIGIN/:$ORIGIN/../lib:/usr/local/src/event-driven/build/lib:/usr/local/lib")
   endif()
-  file(INSTALL DESTINATION "${CMAKE_INSTALL_PREFIX}/bin" TYPE EXECUTABLE FILES "/code/puck_position/cmake-build-debug/puck_position")
+  file(INSTALL DESTINATION "${CMAKE_INSTALL_PREFIX}/bin" TYPE EXECUTABLE FILES "/code/luna/study-air-hockey/puck_position/cmake-build-debug/puck_position")
   if(EXISTS "$ENV{DESTDIR}${CMAKE_INSTALL_PREFIX}/bin/puck_position" AND
      NOT IS_SYMLINK "$ENV{DESTDIR}${CMAKE_INSTALL_PREFIX}/bin/puck_position")
     file(RPATH_CHANGE
@@ -70,5 +70,5 @@ endif()
 
 string(REPLACE ";" "\n" CMAKE_INSTALL_MANIFEST_CONTENT
        "${CMAKE_INSTALL_MANIFEST_FILES}")
-file(WRITE "/code/puck_position/cmake-build-debug/${CMAKE_INSTALL_MANIFEST}"
+file(WRITE "/code/luna/study-air-hockey/puck_position/cmake-build-debug/${CMAKE_INSTALL_MANIFEST}"
      "${CMAKE_INSTALL_MANIFEST_CONTENT}")

@@ -49,47 +49,56 @@ using namespace yarp::os;
 using namespace yarp::sig;
 using namespace std;
 
+class asynch_thread:public Thread{
+
+private:
+    cv::Mat eros;
+    cv::Mat dog_filter;
+
+protected:
+
+
+public:
+    asynch_thread(){}
+
+    void run();
+    void initialise(cv::Mat &eros);
+
+};
+
+struct startPos{
+    int start_x = 150;
+    int start_y = 150;
+    int start_ts = 15;
+};
+
 class puckPosModule:public RFModule, public Thread{
 
 private:
 
     bool success;
-    cv::Mat surface_matrix;
-    Size imsize;
     int w, h;
-
     hpecore::surface EROS_vis;
-
-    Mat dog_filter, result_conv;
-    double min, max;
-    cv::Point min_loc, max_loc;
-
     cv::Rect roi_init;
+
 
     ev::BufferedPort<AE> input_port;
 
-    Stamp ystamp;
 
-    int filter_width;
+    asynch_thread eros_thread;
+
+    struct startPos p0;
+
 
 protected:
 
-    yarp::sig::ImageOf<yarp::sig::PixelBgr> trackMap, filteredImageMap;
-    yarp::sig::ImageOf<yarp::sig::PixelBgr> filterMap;
-    int Xlimit, Ylimit;
-
 public:
-    Stamp local_stamp;
 
     // constructor
-    puckPosModule() : Xlimit(304), Ylimit(240) {
-        cout << "inside constructor";
-        trackMap.resize(Xlimit, Ylimit);
-        filterMap.resize(Xlimit, Ylimit);
-        filteredImageMap.resize(Xlimit, Ylimit);
-    }
+    puckPosModule(){}
 
     //the virtual functions that need to be overloaded
+
     virtual bool configure(yarp::os::ResourceFinder &rf);
     virtual bool interruptModule();
     virtual void onStop();

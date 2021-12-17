@@ -1,14 +1,15 @@
-/apps/CLion-2021.1.1/clion-2021.1.1/bin/cmake/linux/bin/cmake -DCMAKE_BUILD_TYPE=Release -G "CodeBlocks - Unix Makefiles" /code/puck_position
+/apps/CLion-2021.1.1/clion-2021.1.1/bin/cmake/linux/bin/cmake -DCMAKE_BUILD_TYPE=Release -G "CodeBlocks - Unix Makefiles" /code/luna/study-air-hockey/puck_position
 -- Found YCM: /usr/local/lib/cmake/YCM (found version "0.11.3")
-CMake Deprecation Warning at /usr/local/lib/cmake/YARP/YARPConfig.cmake:146 (message):
+-- Found OpenCV: /usr/share/OpenCV/OpenCVConfig.cmake  
+CMake Deprecation Warning at /usr/local/lib/cmake/YARP/YARPConfig.cmake:178 (message):
   The 'OS' component is deprecated.  Use 'os' instead, and replace
   YARP::YARP_OS with YARP::YARP_os.
 Call Stack (most recent call first):
   CMakeLists.txt:12 (find_package)
 
 
--- Found YARP: /usr/local/lib/cmake/YARP (found version "3.4.1")
--- Found YARP: /usr/local/lib/cmake/YARP (found version "3.4.1")
+-- Found YARP: /usr/local/lib/cmake/YARP (found version "3.3.2")
+-- Found YARP: /usr/local/lib/cmake/YARP (found version "3.3.2")
 -- Configuring done
 -- Generating done
--- Build files have been written to: /code/puck_position/cmake-build-release
+-- Build files have been written to: /code/luna/study-air-hockey/puck_position/cmake-build-release
