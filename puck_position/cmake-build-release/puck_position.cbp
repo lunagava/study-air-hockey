@@ -5,7 +5,7 @@
 		<Option title="puck_position"/>
 		<Option makefile_is_custom="1"/>
 		<Option compiler="gcc"/>
-		<Option virtualFolders="CMake Files\;CMake Files\..\;CMake Files\..\..\;CMake Files\..\..\..\;CMake Files\..\..\..\..\;CMake Files\..\..\..\..\usr\;CMake Files\..\..\..\..\usr\local\;CMake Files\..\..\..\..\usr\local\lib\;CMake Files\..\..\..\..\usr\local\lib\cmake\;CMake Files\..\..\..\..\usr\local\lib\cmake\YCM\;CMake Files\..\..\..\..\usr\local\lib\cmake\YARP\;CMake Files\..\..\..\..\usr\local\lib\cmake\YARP_os\;CMake Files\..\..\..\..\usr\local\lib\cmake\YARP_conf\;CMake Files\..\..\..\..\usr\local\lib\cmake\YARP_sig\;CMake Files\..\..\..\..\usr\local\lib\cmake\YARP_math\;CMake Files\..\..\..\..\usr\local\lib\cmake\YARP_dev\;CMake Files\..\..\..\..\usr\local\lib\cmake\hpe-core\;CMake Files\..\..\..\..\usr\local\share\;CMake Files\..\..\..\..\usr\local\share\YCM\;CMake Files\..\..\..\..\usr\local\share\YCM\find-modules\;CMake Files\..\..\..\..\usr\local\share\YCM\modules\;CMake Files\..\..\..\..\usr\local\share\yarp\;CMake Files\..\..\..\..\usr\local\share\yarp\cmake\;CMake Files\..\..\..\..\usr\local\src\;CMake Files\..\..\..\..\usr\local\src\event-driven\;CMake Files\..\..\..\..\usr\local\src\event-driven\build\;CMake Files\..\..\..\..\usr\share\;CMake Files\..\..\..\..\usr\share\OpenCV\;"/>
+		<Option virtualFolders="CMake Files\;CMake Files\..\;CMake Files\..\..\;CMake Files\..\..\..\;CMake Files\..\..\..\..\;CMake Files\..\..\..\..\usr\;CMake Files\..\..\..\..\usr\local\;CMake Files\..\..\..\..\usr\local\lib\;CMake Files\..\..\..\..\usr\local\lib\cmake\;CMake Files\..\..\..\..\usr\local\lib\cmake\YCM\;CMake Files\..\..\..\..\usr\local\lib\cmake\YARP\;CMake Files\..\..\..\..\usr\local\lib\cmake\YARP_os\;CMake Files\..\..\..\..\usr\local\lib\cmake\YARP_conf\;CMake Files\..\..\..\..\usr\local\lib\cmake\YARP_sig\;CMake Files\..\..\..\..\usr\local\lib\cmake\YARP_math\;CMake Files\..\..\..\..\usr\local\lib\cmake\YARP_dev\;CMake Files\..\..\..\..\usr\local\lib\cmake\hpe-core\;CMake Files\..\..\..\..\usr\local\share\;CMake Files\..\..\..\..\usr\local\share\YCM\;CMake Files\..\..\..\..\usr\local\share\YCM\find-modules\;CMake Files\..\..\..\..\usr\local\share\YCM\modules\;CMake Files\..\..\..\..\usr\local\share\yarp\;CMake Files\..\..\..\..\usr\local\share\yarp\cmake\;CMake Files\..\..\..\..\usr\local\src\;CMake Files\..\..\..\..\usr\local\src\event-driven\;CMake Files\..\..\..\..\usr\local\src\event-driven\build\;CMake Files\..\..\..\..\usr\lib\;CMake Files\..\..\..\..\usr\lib\x86_64-linux-gnu\;CMake Files\..\..\..\..\usr\lib\x86_64-linux-gnu\cmake\;CMake Files\..\..\..\..\usr\lib\x86_64-linux-gnu\cmake\opencv4\;"/>
 		<Build>
 			<Target title="all">
 				<Option working_dir="/code/luna/study-air-hockey/puck_position/cmake-build-release"/>
@@ -47,7 +47,7 @@
 					<Add option="-DUSING_DEPRECATED_UPPERCASE_YARP_OS_TARGET"/>
 					<Add directory="/code/luna/study-air-hockey/puck_position/include"/>
 					<Add directory="/usr/local/src/event-driven/ev2/include"/>
-					<Add directory="/usr/include/opencv"/>
+					<Add directory="/usr/include/opencv4"/>
 					<Add directory="/usr/include/c++/9"/>
 					<Add directory="/usr/include/x86_64-linux-gnu/c++/9"/>
 					<Add directory="/usr/include/c++/9/backward"/>
@@ -73,7 +73,7 @@
 					<Add option="-DUSING_DEPRECATED_UPPERCASE_YARP_OS_TARGET"/>
 					<Add directory="/code/luna/study-air-hockey/puck_position/include"/>
 					<Add directory="/usr/local/src/event-driven/ev2/include"/>
-					<Add directory="/usr/include/opencv"/>
+					<Add directory="/usr/include/opencv4"/>
 					<Add directory="/usr/include/c++/9"/>
 					<Add directory="/usr/include/x86_64-linux-gnu/c++/9"/>
 					<Add directory="/usr/include/c++/9/backward"/>
@@ -244,17 +244,17 @@
 		<Unit filename="/code/luna/study-air-hockey/puck_position/../../../../usr/local/src/event-driven/build/event-driven-targets.cmake">
 			<Option virtualFolder="CMake Files\..\..\..\..\usr\local\src\event-driven\build\"/>
 		</Unit>
-		<Unit filename="/code/luna/study-air-hockey/puck_position/../../../../usr/share/OpenCV/OpenCVConfig-version.cmake">
-			<Option virtualFolder="CMake Files\..\..\..\..\usr\share\OpenCV\"/>
+		<Unit filename="/code/luna/study-air-hockey/puck_position/../../../../usr/lib/x86_64-linux-gnu/cmake/opencv4/OpenCVConfig-version.cmake">
+			<Option virtualFolder="CMake Files\..\..\..\..\usr\lib\x86_64-linux-gnu\cmake\opencv4\"/>
 		</Unit>
-		<Unit filename="/code/luna/study-air-hockey/puck_position/../../../../usr/share/OpenCV/OpenCVConfig.cmake">
-			<Option virtualFolder="CMake Files\..\..\..\..\usr\share\OpenCV\"/>
+		<Unit filename="/code/luna/study-air-hockey/puck_position/../../../../usr/lib/x86_64-linux-gnu/cmake/opencv4/OpenCVConfig.cmake">
+			<Option virtualFolder="CMake Files\..\..\..\..\usr\lib\x86_64-linux-gnu\cmake\opencv4\"/>
 		</Unit>
-		<Unit filename="/code/luna/study-air-hockey/puck_position/../../../../usr/share/OpenCV/OpenCVModules-release.cmake">
-			<Option virtualFolder="CMake Files\..\..\..\..\usr\share\OpenCV\"/>
+		<Unit filename="/code/luna/study-air-hockey/puck_position/../../../../usr/lib/x86_64-linux-gnu/cmake/opencv4/OpenCVModules-release.cmake">
+			<Option virtualFolder="CMake Files\..\..\..\..\usr\lib\x86_64-linux-gnu\cmake\opencv4\"/>
 		</Unit>
-		<Unit filename="/code/luna/study-air-hockey/puck_position/../../../../usr/share/OpenCV/OpenCVModules.cmake">
-			<Option virtualFolder="CMake Files\..\..\..\..\usr\share\OpenCV\"/>
+		<Unit filename="/code/luna/study-air-hockey/puck_position/../../../../usr/lib/x86_64-linux-gnu/cmake/opencv4/OpenCVModules.cmake">
+			<Option virtualFolder="CMake Files\..\..\..\..\usr\lib\x86_64-linux-gnu\cmake\opencv4\"/>
 		</Unit>
 	</Project>
 </CodeBlocks_project_file>

@@ -145,6 +145,12 @@ private:
     int puck_size;
     map<int, cv::Mat> filter_bank;
     int filter_bank_min, filter_bank_max;
+    ofstream myfile;
+    double first_time;
+    cv::Point2d puck_corr, puck_meas;
+    cv::Point starting_position;
+    typedef struct{cv::Point p; double s;} score_point;
+    score_point best;
 
     void createFilterBank(int min, int max){
         for(int i=min; i<=max; i+=2)
@@ -152,7 +158,6 @@ private:
 
     }
 
-    typedef struct{cv::Point p; double s;} score_point;
     score_point convolution(cv::Mat eros, cv::Mat filter){
 
         static cv::Mat surface, result_convolution, result_visualization, result_color;
@@ -176,20 +181,12 @@ private:
         return {max_loc + cv::Point(roi.x, roi.y), max};
     }
 
-    cv::Point multi_conv(cv::Mat eros){
+    cv::Point multi_conv(cv::Mat eros, int filter_size){
 
-        int best_size;
-        score_point best={cv::Point(-1, -1), 0.0};
-        for (int i=puck_size-2; i <= puck_size+2; i+=2) {
-            if (i<filter_bank_min || i>filter_bank_max)
-                continue;
-            auto p=convolution(eros, filter_bank[i]);
-            if(p.s > best.s){
-                best = p;
-                best_size = i;
-            }
+        auto p = convolution(eros, filter_bank[filter_size]);
+        if(p.s > 1000){
+            best = p;
         }
-        puck_size = best_size;
 
         return best.p;
     }
@@ -227,26 +224,35 @@ public:
         // [0    0   Eudot  0     ]
         // [0    0   0      Evdot ]
         //cv::setIdentity(kf.processNoiseCov, cv::Scalar(1e-2));
-        kf.processNoiseCov.at<float>(0) = 1e-2;
-        kf.processNoiseCov.at<float>(5) = 1e-2;
+        kf.processNoiseCov.at<float>(0) = 1e-4;
+        kf.processNoiseCov.at<float>(5) = 1e-4;
         kf.processNoiseCov.at<float>(10) = 5.0f;
         kf.processNoiseCov.at<float>(15) = 5.0f;
 
         // Measurement Noise Covariance Matrix R
-        cv::setIdentity(kf.measurementNoiseCov, cv::Scalar(1e-1));
+        cv::setIdentity(kf.measurementNoiseCov, cv::Scalar(10));
 
-        factor = 1.2;
+        factor = 3;
         roi_full = cv::Rect(0,0,640,480);
 
         filter_bank_min = 9;
         filter_bank_max = 49;
         createFilterBank(filter_bank_min, filter_bank_max);
+
+        myfile.open("/data/kalman.txt");
+        if (!myfile.is_open())
+        {
+            yError()<<"Could not open file for kalman prediction and correction";
+            return;
+        }
+
+        first_time = yarp::os::Time::now();
     }
 
-    void updateROI(){
+    void updateROI(Point2d position){
 
-        float &u = kf.statePost.at<float>(0);
-        float &v = kf.statePost.at<float>(1);
+        float u = position.x;
+        float v = position.y;
 
         //puck_size = 0.1*v;
         int roi_width = factor*puck_size;
@@ -256,10 +262,13 @@ public:
 
     void resetKalman(cv::Point starting_position, int puck_size){
 
+        score_point best={starting_position, 5000.0};
+
         if (puck_size%2 == 0)
             puck_size++;
 
         this->puck_size=puck_size;
+        this->starting_position=starting_position;
 
         kf.errorCovPre.at<float>(0) = 1;
         kf.errorCovPre.at<float>(5) = 1;
@@ -271,12 +280,24 @@ public:
         kf.statePost.at<float>(2) = 0;
         kf.statePost.at<float>(3) = 0;
 
-        updateROI();
+        updateROI(starting_position);
+
+        puck_corr = starting_position;
     }
 
-    cv::Point KalmanPrediction(double dT){
+    void updateDetectedPos(cv::Point starting_position, int puck_size){
+        if (puck_size%2 == 0)
+            puck_size++;
 
-        cv::Point estimPuckPos;
+        this->puck_size=puck_size;
+        this->starting_position=starting_position;
+
+        updateROI(starting_position);
+    }
+
+    cv::Point2d KalmanPrediction(double dT){
+
+        cv::Point2d estimPuckPos;
 
         // Matrix A
         kf.transitionMatrix.at<float>(2) = dT;
@@ -289,9 +310,9 @@ public:
         return estimPuckPos;
     }
 
-    cv::Point KalmanCorrection(cv::Point position){
+    cv::Point2d KalmanCorrection(cv::Point position){
 
-        cv::Point corrPuckPos;
+        cv::Point2d corrPuckPos;
         static cv::Mat meas(2,1, CV_32F);
 
         meas.at<float>(0) = position.x;
@@ -336,29 +357,36 @@ public:
     void track(cv::Mat eros, double dT){
 
         static cv::Mat eros_bgr;
+        int last_y = puck_corr.y;
+        int filter_size = 0.08*last_y+1.8;
+        puck_size = filter_size;
 
-        cv::Point puck_meas = multi_conv(eros);
+        if (puck_size%2 == 0)
+            puck_size++;
 
-        float &u = kf.statePost.at<float>(0);
-        float &v = kf.statePost.at<float>(1);
-        u = puck_meas.x;
-        v = puck_meas.y;
+        if (puck_size<9)
+            puck_size = 9;
 
-        //cv::Point puck_pred = KalmanPrediction(dT);
-        //cv::Point puck_corr = KalmanCorrection(puck_meas);
+        cv::Point2d puck_meas = multi_conv(eros, puck_size);
+        cv::Point2d puck_pred = KalmanPrediction(dT);
+        puck_corr = KalmanCorrection(puck_meas);
 
-        updateROI();
+        updateROI(puck_corr);
 
         cv::cvtColor(eros, eros_bgr, cv::COLOR_GRAY2BGR);
-        // cv::circle(eros_bgr, puck_corr, 5, cv::Scalar(255, 0, 255), cv::FILLED);
-        //cv::circle(eros_bgr, puck_pred, 5, cv::Scalar(0, 255, 255));
+        cv::circle(eros_bgr, puck_corr, 5, cv::Scalar(255, 0, 255), cv::FILLED);
+        cv::circle(eros_bgr, puck_pred, 5, cv::Scalar(0, 255, 255));
         cv::circle(eros_bgr, puck_meas, 5, cv::Scalar(0, 0, 255));
+        cv::rectangle(eros_bgr, roi, cv::Scalar(0,255,0));
 
         cv::namedWindow("FULL IMAGE", cv::WINDOW_NORMAL);
         cv::imshow("FULL IMAGE", eros_bgr);
         //cv::waitKey(0);
 
-        yInfo()<<puck_size;
+        //yInfo()<<puck_size;
+        //yInfo()<<"("<<puck_meas.x<<","<<puck_meas.y<<") ("<<kf.statePre.at<float>(0)<<","<<kf.statePre.at<float>(1)<<") ("<<kf.statePost.at<float>(0)<<","<<kf.statePost.at<float>(1)<<")";
+//        yInfo()<<puck_meas.x<<","<<puck_meas.y<<","<<puck_pred.x<<","<<puck_pred.y<<","<<puck_corr.x<<","<<puck_corr.y;
+        //myfile<<puck_size<<","<<(yarp::os::Time::now()-first_time)<<","<<puck_meas.x<<","<<puck_meas.y<<","<<puck_pred.x<<","<<puck_pred.y<<","<<puck_corr.x<<","<<puck_corr.y<<endl;
     }
 
 
@@ -371,7 +399,6 @@ private:
 
     tracking tracker;
     detection detector;
-
 protected:
 
 

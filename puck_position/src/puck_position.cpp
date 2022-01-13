@@ -41,7 +41,7 @@ bool puckPosModule::configure(yarp::os::ResourceFinder& rf) {
     yarp::os::Network::connect("/atis3/AE:o", getName("/AE:i"), "fast_tcp");
 
     cv::Mat temp = EROS_vis.getSurface();
-    eros_thread.initialise(temp, 19, cv::Rect(40, 150, 550, 80), 5000);
+    eros_thread.initialise(temp, 19, cv::Rect(40, 150, 550, 100), 5000);
     eros_thread.start();
 
     return Thread::start();
@@ -56,20 +56,11 @@ void puckPosModule::run() {
             yWarning() << qs;
 
         //for(int i = 0; i < qs; i++) {
-
         ev::packet<AE> *q = input_port.read();
         if (!q) return;
-        for(auto &v : *q){
-
-//                if (v.stamp >= p0.start_ts)
-//                  if (v.x > p0.start_x - roi_width && v.x < p0.start_x + roi_width && v.y > p0.start_y - roi_height && v.y < p0.start_y + roi_height)
-
-            // call EROSupdate
+        for(auto &v : *q)
             success = EROS_vis.EROSupdate(v.x, v.y);
-        }
         //}
-
-
     }
 }
 
@@ -110,7 +101,6 @@ void asynch_thread::run() {
 
     while(!isStopping())
     {
-
         cv::GaussianBlur(eros, eros_filtered, cv::Size(5, 5), 0);
 
         // --- DETECTION PHASE ----
@@ -119,10 +109,10 @@ void asynch_thread::run() {
             if(detector.detect(eros_filtered)){
                 tracking = true;
                 tracker.resetKalman(detector.getDetection(), detector.getSize());
+                yInfo()<<"first detected = ("<<detector.getDetection().x<<","<<detector.getDetection().y<<")";
             }
-
         }
-            // ---- TRACKING PHASE ----
+        // ---- TRACKING PHASE ----
         else{
             double dT = yarp::os::Time::now() - tic;
             tic += dT;
@@ -130,6 +120,10 @@ void asynch_thread::run() {
 
             tracker.track(eros_filtered, dT);
 
+            if (detector.detect(eros_filtered)) {
+                tracker.updateDetectedPos(detector.getDetection(), detector.getSize());
+                yInfo() << "detected = (" << detector.getDetection().x << "," << detector.getDetection().y << ")";
+            }
         }
 
 
