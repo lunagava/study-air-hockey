@@ -60,6 +60,7 @@ private:
     cv::Mat filter;
     cv::Point max_loc;
 
+
 protected:
 
 public:
@@ -145,6 +146,8 @@ private:
     int puck_size;
     map<int, cv::Mat> filter_bank;
     int filter_bank_min, filter_bank_max;
+    ofstream myfile;
+    double first_time;
 
     void createFilterBank(int min, int max){
         for(int i=min; i<=max; i+=2)
@@ -227,20 +230,29 @@ public:
         // [0    0   Eudot  0     ]
         // [0    0   0      Evdot ]
         //cv::setIdentity(kf.processNoiseCov, cv::Scalar(1e-2));
-        kf.processNoiseCov.at<float>(0) = 1e-2;
-        kf.processNoiseCov.at<float>(5) = 1e-2;
+        kf.processNoiseCov.at<float>(0) = 1e-1;
+        kf.processNoiseCov.at<float>(5) = 1e-1;
         kf.processNoiseCov.at<float>(10) = 5.0f;
         kf.processNoiseCov.at<float>(15) = 5.0f;
 
         // Measurement Noise Covariance Matrix R
-        cv::setIdentity(kf.measurementNoiseCov, cv::Scalar(1e-1));
+        cv::setIdentity(kf.measurementNoiseCov, cv::Scalar(1e-4));
 
-        factor = 1.2;
+        factor = 1.8;
         roi_full = cv::Rect(0,0,640,480);
 
         filter_bank_min = 9;
         filter_bank_max = 49;
         createFilterBank(filter_bank_min, filter_bank_max);
+
+        myfile.open("/data/kalman.txt");
+        if (!myfile.is_open())
+        {
+            yError()<<"Could not open file for kalman prediction and correction";
+            return;
+        }
+
+        first_time = yarp::os::Time::now();
     }
 
     void updateROI(){
@@ -248,7 +260,6 @@ public:
         float &u = kf.statePost.at<float>(0);
         float &v = kf.statePost.at<float>(1);
 
-        //puck_size = 0.1*v;
         int roi_width = factor*puck_size;
 
         roi = cv::Rect(u - roi_width/2, v - roi_width/2, roi_width, roi_width) & roi_full;
@@ -274,9 +285,9 @@ public:
         updateROI();
     }
 
-    cv::Point KalmanPrediction(double dT){
+    cv::Point2d KalmanPrediction(double dT){
 
-        cv::Point estimPuckPos;
+        cv::Point2d estimPuckPos;
 
         // Matrix A
         kf.transitionMatrix.at<float>(2) = dT;
@@ -289,9 +300,9 @@ public:
         return estimPuckPos;
     }
 
-    cv::Point KalmanCorrection(cv::Point position){
+    cv::Point2d KalmanCorrection(cv::Point position){
 
-        cv::Point corrPuckPos;
+        cv::Point2d corrPuckPos;
         static cv::Mat meas(2,1, CV_32F);
 
         meas.at<float>(0) = position.x;
@@ -341,17 +352,18 @@ public:
 
         float &u = kf.statePost.at<float>(0);
         float &v = kf.statePost.at<float>(1);
-        u = puck_meas.x;
-        v = puck_meas.y;
+//        u = puck_meas.x;
+//        v = puck_meas.y;
 
-        //cv::Point puck_pred = KalmanPrediction(dT);
-        //cv::Point puck_corr = KalmanCorrection(puck_meas);
+        cv::Point2d puck_pred = KalmanPrediction(dT);
+        cv::Point2d puck_corr = KalmanCorrection(puck_meas);
 
         updateROI();
 
         cv::cvtColor(eros, eros_bgr, cv::COLOR_GRAY2BGR);
-        // cv::circle(eros_bgr, puck_corr, 5, cv::Scalar(255, 0, 255), cv::FILLED);
-        //cv::circle(eros_bgr, puck_pred, 5, cv::Scalar(0, 255, 255));
+        cv::circle(eros_bgr, puck_corr, 5, cv::Scalar(0, 0, 255), cv::FILLED);
+        cv::circle(eros_bgr, puck_pred, 5, cv::Scalar(0, 255, 255));
+        cv::rectangle(eros_bgr, roi, cv::Scalar(0,0,255));
         cv::circle(eros_bgr, puck_meas, 5, cv::Scalar(0, 0, 255));
 
         cv::namedWindow("FULL IMAGE", cv::WINDOW_NORMAL);
@@ -359,6 +371,8 @@ public:
         //cv::waitKey(0);
 
         yInfo()<<puck_size;
+        yInfo()<<puck_pred.x<<" "<<puck_pred.y<<" "<<puck_corr.x<<" "<<puck_corr.y;
+        myfile<<puck_size<<","<<(yarp::os::Time::now()-first_time)<<","<<puck_meas.x<<","<<puck_meas.y<<","<<puck_pred.x<<","<<puck_pred.y<<","<<puck_corr.x<<","<<puck_corr.y<<endl;
     }
 
 

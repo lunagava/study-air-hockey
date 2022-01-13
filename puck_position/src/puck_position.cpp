@@ -130,6 +130,11 @@ void asynch_thread::run() {
 
             tracker.track(eros_filtered, dT);
 
+            if(detector.detect(eros_filtered)){
+                tracking = true;
+                tracker.resetKalman(detector.getDetection(), detector.getSize());
+            }
+
         }
 
 

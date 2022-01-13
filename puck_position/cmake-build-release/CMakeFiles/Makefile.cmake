@@ -37,6 +37,10 @@ set(CMAKE_MAKEFILE_DEPENDS
   "CMakeFiles/3.19.2/CMakeCCompiler.cmake"
   "CMakeFiles/3.19.2/CMakeCXXCompiler.cmake"
   "CMakeFiles/3.19.2/CMakeSystem.cmake"
+  "/usr/lib/x86_64-linux-gnu/cmake/opencv4/OpenCVConfig-version.cmake"
+  "/usr/lib/x86_64-linux-gnu/cmake/opencv4/OpenCVConfig.cmake"
+  "/usr/lib/x86_64-linux-gnu/cmake/opencv4/OpenCVModules-release.cmake"
+  "/usr/lib/x86_64-linux-gnu/cmake/opencv4/OpenCVModules.cmake"
   "/usr/local/lib/cmake/YARP/YARPConfig.cmake"
   "/usr/local/lib/cmake/YARP/YARPConfigVersion.cmake"
   "/usr/local/lib/cmake/YARP_conf/YARP_confConfig.cmake"
@@ -72,10 +76,6 @@ set(CMAKE_MAKEFILE_DEPENDS
   "/usr/local/src/event-driven/build/event-driven-config-version.cmake"
   "/usr/local/src/event-driven/build/event-driven-config.cmake"
   "/usr/local/src/event-driven/build/event-driven-targets.cmake"
-  "/usr/share/OpenCV/OpenCVConfig-version.cmake"
-  "/usr/share/OpenCV/OpenCVConfig.cmake"
-  "/usr/share/OpenCV/OpenCVModules-release.cmake"
-  "/usr/share/OpenCV/OpenCVModules.cmake"
   )
 
 # The corresponding makefile is:
