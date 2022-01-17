@@ -41,8 +41,10 @@ bool puckPosModule::configure(yarp::os::ResourceFinder& rf) {
     yarp::os::Network::connect("/atis3/AE:o", getName("/AE:i"), "fast_tcp");
 
     cv::Mat temp = EROS_vis.getSurface();
-    eros_thread.initialise(temp, 19, cv::Rect(40, 150, 550, 100), 5000);
+    eros_thread.initialise(temp, 21, cv::Rect(80, 220, 150, 100), 5000);
     eros_thread.start();
+
+    pause = true;
 
     return Thread::start();
 }
@@ -61,6 +63,12 @@ void puckPosModule::run() {
         for(auto &v : *q)
             success = EROS_vis.EROSupdate(v.x, v.y);
         //}
+
+//        if (pause)
+//            m.lock();
+//        else
+
+
     }
 }
 
@@ -71,6 +79,24 @@ double puckPosModule::getPeriod() {
 bool puckPosModule::updateModule() {
 
     cv::waitKey(1);
+//    char ch = 0;
+//
+//    if(pause)
+//        ch = cv::waitKey(0);
+//    else
+//        ch = cv::waitKey(1);
+
+//    if (ch==32){
+//        pause = !pause;
+//        if(pause)
+//            m.lock();
+//        else
+//            m.unlock();
+//    }
+//    else if(ch='n'){
+//        m.unlock();
+//    }
+
     return Thread::isRunning();
 }
 
@@ -107,7 +133,7 @@ void asynch_thread::run() {
         if (!tracking)
         {
             if(detector.detect(eros_filtered)){
-                tracking = true;
+//                tracking = true;
                 tracker.resetKalman(detector.getDetection(), detector.getSize());
                 yInfo()<<"first detected = ("<<detector.getDetection().x<<","<<detector.getDetection().y<<")";
             }
