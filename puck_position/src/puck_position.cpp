@@ -41,7 +41,7 @@ bool puckPosModule::configure(yarp::os::ResourceFinder& rf) {
     yarp::os::Network::connect("/atis3/AE:o", getName("/AE:i"), "fast_tcp");
 
     cv::Mat temp = EROS_vis.getSurface();
-    eros_thread.initialise(temp, 21, cv::Rect(80, 220, 150, 100), 5000);
+    eros_thread.initialise(temp, 19, cv::Rect(40, 150, 550, 80), 5000);
     eros_thread.start();
 
     pause = true;
@@ -133,7 +133,7 @@ void asynch_thread::run() {
         if (!tracking)
         {
             if(detector.detect(eros_filtered)){
-//                tracking = true;
+                tracking = true;
                 tracker.resetKalman(detector.getDetection(), detector.getSize());
                 yInfo()<<"first detected = ("<<detector.getDetection().x<<","<<detector.getDetection().y<<")";
             }
@@ -146,10 +146,6 @@ void asynch_thread::run() {
 
             tracker.track(eros_filtered, dT);
 
-            if (detector.detect(eros_filtered)) {
-                tracker.updateDetectedPos(detector.getDetection(), detector.getSize());
-                yInfo() << "detected = (" << detector.getDetection().x << "," << detector.getDetection().y << ")";
-            }
         }
 
 

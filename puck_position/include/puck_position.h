@@ -110,26 +110,14 @@ public:
         cv::normalize(result_convolution, result_convolution, 255, 0, cv::NORM_MINMAX);
         result_convolution.convertTo(result_visualization, CV_8U);
 
-//        cv::cvtColor(result_visualization, result_color, cv::COLOR_GRAY2BGR);
-//        if (max>thresh)
-//            cv::circle(result_color, max_loc, 5, cv::Scalar(255, 0, 0), cv::FILLED);
-//        else
-//            cv::circle(result_color, max_loc, 5, cv::Scalar(0, 0, 255), cv::FILLED);
-
-        cv::normalize(result_convolution, result_conv_normalized, 0, 255, cv::NORM_MINMAX);
-
-//        for(auto i=0; i<result_conv_normalized.rows; i++){
-//            for(auto j=0; j<result_conv_normalized.cols; j++){
-//                std::cout<<result_conv_normalized.at<float>(i,j)<<" ";
-//            }
-//            std::cout<<std::endl;
-//        }
-
-        result_conv_normalized.convertTo(heat_map, CV_8U);
-        cv::applyColorMap(heat_map, result_final, cv::COLORMAP_JET);
+        cv::cvtColor(result_visualization, result_color, cv::COLOR_GRAY2BGR);
+        if (max>thresh)
+            cv::circle(result_color, max_loc, 5, cv::Scalar(255, 0, 0), cv::FILLED);
+        else
+            cv::circle(result_color, max_loc, 5, cv::Scalar(0, 0, 255), cv::FILLED);
 
         cv::namedWindow("RESULT", cv::WINDOW_NORMAL);
-        cv::imshow("RESULT", result_final);
+        cv::imshow("RESULT", result_color);
 
         max_loc += cv::Point(roi.x, roi.y);
 
@@ -270,7 +258,7 @@ public:
         // Measurement Noise Covariance Matrix R
         cv::setIdentity(kf.measurementNoiseCov, cv::Scalar(1));
 
-        factor = 2;
+        factor = 3;
         roi_full = cv::Rect(0,0,640,480);
 
         filter_bank_min = 9;
@@ -394,37 +382,69 @@ public:
 
     void track(cv::Mat eros, double dT){
 
-        static cv::Mat eros_bgr;
+        static cv::Mat p_eros, p_eros_bgr, eros_bgr, conv_result, surface, p_surface, result_norm, heat_map, result_final, eros_bgr_full;
+        cv::Point min_loc, max_loc;
+        double min, max;
         int last_y = puck_corr.y;
-        int filter_size = 0.08*last_y+1.8;
-        puck_size = filter_size;
+//        int filter_size = 0.08*last_y+1.8;
+//        puck_size = filter_size;
+//
+//        if (puck_size%2 == 0)
+//            puck_size++;
+//
+//        if (puck_size<9)
+//            puck_size = 9;
 
-        if (puck_size%2 == 0)
-            puck_size++;
+        puck_size = 7;
 
-        if (puck_size<9)
-            puck_size = 9;
+        eros(roi).convertTo(surface, CV_32F);
 
-        cv::Point2d puck_meas = multi_conv(eros, puck_size);
-        cv::Point2d puck_pred = KalmanPrediction(dT);
-        puck_corr = KalmanCorrection(puck_meas);
+        if(p_eros.empty()){
+            eros.copyTo(p_eros);
+            return;
+        }
 
-        updateROI(puck_corr);
+        eros(roi).convertTo(surface, CV_32F);
+        p_eros.convertTo(p_surface, CV_32F);
 
-        cv::cvtColor(eros, eros_bgr, cv::COLOR_GRAY2BGR);
-        cv::circle(eros_bgr, puck_corr, 5, cv::Scalar(255, 0, 255), cv::FILLED);
-        cv::circle(eros_bgr, puck_pred, 5, cv::Scalar(0, 255, 255));
-        cv::circle(eros_bgr, puck_meas, 5, cv::Scalar(0, 0, 255));
-        cv::rectangle(eros_bgr, roi, cv::Scalar(0,255,0));
+//        cv::Point2d puck_meas = multi_conv(eros, puck_size);
+
+        cv::filter2D(surface, conv_result,-1, p_eros, cv::Point(-1, -1), 0); // look at border
+        cv::minMaxLoc(conv_result, &min, &max, &min_loc, &max_loc);
+
+        cv::normalize(conv_result, result_norm, 255, 0, NORM_MINMAX);
+        result_norm.convertTo(heat_map, CV_8U);
+        cv::applyColorMap(heat_map, result_final, cv::COLORMAP_JET);
+
+        max_loc += cv::Point(roi.x, roi.y);
+
+        updateROI(max_loc);
+
+        cv::cvtColor(eros, eros_bgr_full, cv::COLOR_GRAY2BGR);
+        cv::cvtColor(eros(roi), eros_bgr, cv::COLOR_GRAY2BGR);
+        cv::cvtColor(p_eros(roi), p_eros_bgr, cv::COLOR_GRAY2BGR);
+
+        cv::circle(eros_bgr_full, max_loc, 5, cv::Scalar(0, 0, 255));
+        cv::rectangle(eros_bgr_full, roi, cv::Scalar(0,255,0));
 
         cv::namedWindow("FULL IMAGE", cv::WINDOW_NORMAL);
-        cv::imshow("FULL IMAGE", eros_bgr);
+        cv::imshow("FULL IMAGE", result_final);
+
+        cv::namedWindow("previous_eros", cv::WINDOW_NORMAL);
+        cv::imshow("previous_eros", p_eros_bgr);
+
+        cv::namedWindow("current_eros", cv::WINDOW_NORMAL);
+        cv::imshow("current_eros", eros_bgr);
         //cv::waitKey(0);
 
-        yInfo()<<puck_size;
-        yInfo()<<"("<<puck_meas.x<<","<<puck_meas.y<<") ("<<kf.statePre.at<float>(0)<<","<<kf.statePre.at<float>(1)<<") ("<<kf.statePost.at<float>(0)<<","<<kf.statePost.at<float>(1)<<")";
-//        yInfo()<<puck_meas.x<<","<<puck_meas.y<<","<<puck_pred.x<<","<<puck_pred.y<<","<<puck_corr.x<<","<<puck_corr.y;
-        myfile<<puck_size<<","<<(yarp::os::Time::now()-first_time)<<","<<puck_meas.x<<","<<puck_meas.y<<","<<puck_pred.x<<","<<puck_pred.y<<","<<puck_corr.x<<","<<puck_corr.y<<endl;
+        cv::namedWindow("full_eros", cv::WINDOW_NORMAL);
+        cv::imshow("full_eros", eros_bgr_full);
+
+        eros.copyTo(p_eros);
+//        yInfo()<<puck_size;
+//        yInfo()<<"("<<puck_meas.x<<","<<puck_meas.y<<") ("<<kf.statePre.at<float>(0)<<","<<kf.statePre.at<float>(1)<<") ("<<kf.statePost.at<float>(0)<<","<<kf.statePost.at<float>(1)<<")";
+////        yInfo()<<puck_meas.x<<","<<puck_meas.y<<","<<puck_pred.x<<","<<puck_pred.y<<","<<puck_corr.x<<","<<puck_corr.y;
+//        myfile<<puck_size<<","<<(yarp::os::Time::now()-first_time)<<","<<puck_meas.x<<","<<puck_meas.y<<","<<puck_pred.x<<","<<puck_pred.y<<","<<puck_corr.x<<","<<puck_corr.y<<endl;
     }
 
 
