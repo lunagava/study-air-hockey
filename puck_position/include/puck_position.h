@@ -93,7 +93,7 @@ public:
 
         cv::namedWindow("init filter", cv::WINDOW_NORMAL);
         cv::imshow("init filter", filter);
-        //cv::waitKey(1);
+
 
     }
 
@@ -457,6 +457,7 @@ private:
     std::mutex m;
     int w, h;
     hpecore::surface EROS_vis;
+    bool first_it;
 
     ev::BufferedPort<AE> input_port;
 

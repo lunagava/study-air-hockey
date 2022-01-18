@@ -44,7 +44,8 @@ bool puckPosModule::configure(yarp::os::ResourceFinder& rf) {
     eros_thread.initialise(temp, 21, cv::Rect(80, 220, 150, 100), 5000);
     eros_thread.start();
 
-    pause = true;
+    pause = false;
+    first_it = true;
 
     return Thread::start();
 }
@@ -64,10 +65,10 @@ void puckPosModule::run() {
             success = EROS_vis.EROSupdate(v.x, v.y);
         //}
 
-//        if (pause)
-//            m.lock();
-//        else
-
+        if (pause)
+            m.lock();
+        else
+            m.unlock();
 
     }
 }
@@ -78,24 +79,30 @@ double puckPosModule::getPeriod() {
 
 bool puckPosModule::updateModule() {
 
-    cv::waitKey(1);
-//    char ch = 0;
-//
-//    if(pause)
-//        ch = cv::waitKey(0);
-//    else
-//        ch = cv::waitKey(1);
+    if (first_it){
+        yarp::os::Time::delay(5);
+        first_it = false;
+    }
+//    cv::waitKey(1);
+    int key = 0;
 
-//    if (ch==32){
-//        pause = !pause;
-//        if(pause)
-//            m.lock();
-//        else
-//            m.unlock();
-//    }
-//    else if(ch='n'){
-//        m.unlock();
-//    }
+    if(pause)
+        key = cv::waitKey(1);
+    else
+        key = cv::waitKey(0) & 0xFF;
+
+    if (key == 'p'){  // press p to pause
+
+        pause = !pause;
+        if(pause)
+            m.lock();
+        else
+            m.unlock();
+    }
+    else if(key == 'n'){ // next
+
+        m.unlock();
+    }
 
     return Thread::isRunning();
 }
@@ -134,8 +141,8 @@ void asynch_thread::run() {
         {
             if(detector.detect(eros_filtered)){
 //                tracking = true;
-                tracker.resetKalman(detector.getDetection(), detector.getSize());
-                yInfo()<<"first detected = ("<<detector.getDetection().x<<","<<detector.getDetection().y<<")";
+//                tracker.resetKalman(detector.getDetection(), detector.getSize());
+//                yInfo()<<"first detected = ("<<detector.getDetection().x<<","<<detector.getDetection().y<<")";
             }
         }
         // ---- TRACKING PHASE ----
