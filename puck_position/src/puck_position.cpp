@@ -41,7 +41,7 @@ bool puckPosModule::configure(yarp::os::ResourceFinder& rf) {
     yarp::os::Network::connect("/atis3/AE:o", getName("/AE:i"), "fast_tcp");
 
     cv::Mat temp = EROS_vis.getSurface();
-    eros_thread.initialise(temp, 21, cv::Rect(80, 220, 150, 100), 5000);
+    eros_thread.initialise(temp, 27, cv::Rect(350, 220, 150, 100), 5000);
     eros_thread.start();
 
     pause = false;
@@ -126,37 +126,45 @@ void asynch_thread::initialise(cv::Mat &eros, int init_filter_width, cv::Rect ro
 
 }
 
+void asynch_thread::setStatus(int tracking_status) {
+    this->tracking_status=tracking_status;
+}
+
+int asynch_thread::getStatus(){
+    return tracking_status;
+}
+
 void asynch_thread::run() {
 
     cv::Mat eros_filtered, kernel, result_visualization;
     double tic = yarp::os::Time::now();
-    bool tracking = false;
+    setStatus(0);
 
     while(!isStopping())
     {
         cv::GaussianBlur(eros, eros_filtered, cv::Size(5, 5), 0);
 
         // --- DETECTION PHASE ----
-        if (!tracking)
+        if (!getStatus())
         {
             if(detector.detect(eros_filtered)){
-//                tracking = true;
-//                tracker.resetKalman(detector.getDetection(), detector.getSize());
-//                yInfo()<<"first detected = ("<<detector.getDetection().x<<","<<detector.getDetection().y<<")";
+//                setStatus(1);
+                tracker.resetKalman(detector.getDetection(), detector.getSize());
+                yInfo()<<"first detected = ("<<detector.getDetection().x<<","<<detector.getDetection().y<<")";
             }
         }
         // ---- TRACKING PHASE ----
         else{
-            double dT = yarp::os::Time::now() - tic;
-            tic += dT;
-//            yInfo() << "Running at a cool " << 1.0 / dT << "Hz";
-
-            tracker.track(eros_filtered, dT);
-
-            if (detector.detect(eros_filtered)) {
-                tracker.updateDetectedPos(detector.getDetection(), detector.getSize());
-                yInfo() << "detected = (" << detector.getDetection().x << "," << detector.getDetection().y << ")";
-            }
+//            double dT = yarp::os::Time::now() - tic;
+//            tic += dT;
+////            yInfo() << "Running at a cool " << 1.0 / dT << "Hz";
+//
+//            tracker.track(eros_filtered, dT);
+//            if(detector.detect(eros_filtered)){
+//                setStatus(1);
+//                tracker.resetKalman(detector.getDetection(), detector.getSize());
+//                yInfo()<<"first detected = ("<<detector.getDetection().x<<","<<detector.getDetection().y<<")";
+//            }
         }
 
 
