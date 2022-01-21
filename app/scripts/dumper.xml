@@ -1,0 +1,48 @@
+<application>
+<name>vdumper</name>
+
+<dependencies>
+</dependencies>
+
+
+<authors>
+	<author email="luna.gava@iit.it"> Luna Gava </author>
+</authors>
+
+<module>
+	<name> yarpdatadumper </name>
+	<parameters>--name hand --dir /data/smooth_traj/hand</parameters>
+	<node> localhost </node>
+</module>
+
+<module>
+	<name> yarpdatadumper </name>
+	<parameters>--name eye --dir /data/smooth_traj/eye</parameters>
+	<node> localhost </node>
+</module>
+
+<module>
+	<name> binary-dumper </name>
+	<parameters>---path /data/smooth_traj</parameters>
+	<node> localhost </node>
+</module>
+
+<connection>
+	<from>/zynqGrabber/AE:o</from>
+	<to>/custom-dumper/AE:i</to>
+	<protocol>fast_tcp</protocol>
+</connection>
+
+<connection>
+	<from>/study-air-hockey/hand-pixels</from>
+	<to>/hand</to>
+	<protocol>fast_tcp</protocol>
+</connection>
+
+<connection>
+	<from>/study-air-hockey/eye</from>
+	<to>/eye</to>
+	<protocol>fast_tcp</protocol>
+</connection>
+
+</application>

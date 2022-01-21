@@ -1,0 +1,42 @@
+import numpy as np
+import matplotlib.pyplot as plt
+
+position = np.genfromtxt("../../../../data/kalman.txt", delimiter=",", names=["puck_size","time","x", "y", "predx", "predy", "corrx", "corry"])
+
+fig1 = plt.figure()
+plt.plot(position['time'], position['y'], 'b', label='measured', linewidth=2)
+plt.plot(position['time'], position['predy'], 'k', label='prediction')
+plt.plot(position['time'], position['corry'], 'r', label='correction')
+plt.legend()
+plt.title('Tracker')
+plt.xlabel('t [s]')
+plt.ylabel('y [pix]')
+plt.show()
+
+fig2 = plt.figure()
+plt.plot(position['time'], position['x'], 'b', label='measured', linewidth=2)
+plt.plot(position['time'], position['predx'], 'k', label='prediction')
+plt.plot(position['time'], position['corrx'], 'r', label='correction')
+plt.legend()
+plt.title('Tracker')
+plt.xlabel('t [s]')
+plt.ylabel('x [pix]')
+plt.show()
+
+fig3 = plt.figure()
+plt.plot(position['x'], position['y'], 'b', label='measured', linewidth=2)
+plt.plot(position['predx'], position['predy'], 'k', label='prediction')
+plt.plot(position['corrx'], position['corry'], 'r', label='correction')
+plt.legend()
+plt.gca().invert_yaxis()
+plt.title('Tracker')
+plt.xlabel('x [pix]')
+plt.ylabel('y [pix]')
+plt.show()
+
+fig4 = plt.figure()
+plt.plot(position['time'], position['puck_size'], 'b', linewidth=1)
+plt.title('Puck size')
+plt.xlabel('t [s]')
+plt.ylabel('puck size [pix]')
+plt.show()

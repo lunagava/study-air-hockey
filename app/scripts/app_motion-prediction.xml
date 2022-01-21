@@ -1,0 +1,73 @@
+<application>
+<name>vMotionCompensationTracker</name>
+
+<dependencies>
+</dependencies>
+
+
+<authors>
+	<author email="luna.gava@iit.it"> Luna Gava </author>
+</authors>
+
+<module>
+	<name> zynqGrabber </name>
+	<parameters></parameters>
+	<node> icub-zynq </node>
+</module>
+
+<module>
+	<name> vPreProcess </name>
+	<parameters>--undistort false --flipx true --flipy true --filter_spatial true --filter_temporal true --sf_tsize 0.05 -split_stereo true --combined_stereo false</parameters>
+	<node> localhost </node>
+</module>
+
+<module>
+	<name> vFramerLite</name>
+	<parameters> --displays "(/right (AE AE-INT) /dropping (AE ISO))" </parameters>
+	<node> localhost </node>
+</module>
+
+<module>
+	<name> yarpview </name>
+	<parameters>--name /viewRightCamera --x 658 --y 30 --w 608 --h 480 --synch </parameters>
+	<node> localhost </node>
+</module>
+
+<module>
+	<name> yarpview </name>
+	<parameters>--name /viewTrack --x 658 --y 30 --w 608 --h 480 --synch</parameters>
+	<node> localhost </node>
+</module>
+
+<connection>
+	<from>/zynqGrabber/AE:o</from>
+	<to>/vPreProcess/AE:i</to>
+	<protocol>fast_tcp</protocol>
+</connection>
+
+<connection>
+	<from>/vPreProcess/right:o</from>
+	<to>/motion-prediction/AE:i</to>
+	<protocol>fast_tcp</protocol>
+</connection>
+
+<connection>
+	<from>/study-air-hockey/eye</from>
+	<to>/motion-prediction/eye-frame:i</to>
+	<protocol>fast_tcp</protocol>
+</connection>
+
+<connection>
+	<from>/study-air-hockey/AE:o</from>
+	<to>/tracker/AE:i</to>
+	<protocol>fast_tcp</protocol>
+</connection>
+
+
+<connection>
+	<from>/tracker/image:o</from>
+	<to>/viewTrack</to>
+	<protocol> fast_tcp </protocol>
+</connection>
+
+</application>

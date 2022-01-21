@@ -81,7 +81,7 @@ public:
                 if(res > fw2-1 + 1.5)
                     p = 0.0;
                 else if (res < fw2-1 - 1.5)
-                    p = -1.0;
+                    p = -2;
                 else
                     p = 1.0;
             }
@@ -92,7 +92,7 @@ public:
         cv::normalize(filter, temp, 1, 0, cv::NORM_MINMAX);
 
 //        cv::imshow("init filter", filter);
-
+//        cv::waitKey(1);
 
     }
 
@@ -116,6 +116,7 @@ public:
             cv::circle(result_color, max_loc, 5, cv::Scalar(0, 0, 255), cv::FILLED);
 
         cv::imshow("RESULT", result_color);
+//        cv::waitKey(1);
 
         max_loc += cv::Point(roi.x, roi.y);
 
@@ -149,9 +150,6 @@ private:
     cv::Point starting_position;
     typedef struct{cv::Point p; double s;} score_point;
     score_point best;
-    cv::Point previous_p;
-    bool first_conv;
-    Rect zoom;
 
     void createFilterBank(int min, int max){
         for(int i=min; i<=max; i+=2)
@@ -159,19 +157,18 @@ private:
 
     }
 
-    score_point convolution(cv::Mat eros, cv::Mat filter, cv::Point previous_p){
+    score_point convolution(cv::Mat eros, cv::Mat filter){
 
         static cv::Mat surface, result_convolution, result_visualization, result_surface, result_color, result_final, result_conv_normalized, heat_map, H, max_portion, result_portion, visualization_portion, color_portion;
-        double min, max, local_min, local_max; cv::Point highest_peak, lowest_peak, local_highest_peak, local_lowest_peak;
+        double min, max; cv::Point highest_peak, lowest_peak;
 
         eros(roi).convertTo(surface, CV_32F);
 
         cv::filter2D(surface, result_convolution, -1, filter, cv::Point(-1, -1), 0, cv::BORDER_ISOLATED); // look at border
 
-        zoom = Rect((roi.width-puck_size)*0.5, (roi.width-puck_size)*0.5, puck_size, puck_size);
+        cv::Rect zoom = Rect((roi.width-puck_size)*0.5, (roi.width-puck_size)*0.5, puck_size, puck_size);
 
         cv::minMaxLoc(result_convolution(zoom), &min, &max, &lowest_peak, &highest_peak);
-
 
         cv::normalize(surface, result_surface, 255, 0, cv::NORM_MINMAX);
         result_surface.convertTo(result_visualization, CV_8U);
@@ -185,29 +182,27 @@ private:
 
         hconcat(result_color, result_final, H);
 
-//        Mat g1 = getGaussianKernel(5, 5*0.6, CV_32F) * getGaussianKernel(5, 5*0.6, CV_32F).t();
-//        cv::normalize(g1, g1, 1, 0, cv::NORM_MINMAX);
-//
-//        cv::Mat updated_peak = heat_map.mul(g1);
-
         cv::Point new_peak = highest_peak + cv::Point(zoom.x, zoom.y);
 
         cv::circle(H, new_peak, 5, cv::Scalar(0, 0, 255), cv::FILLED);
         cv::rectangle(H, zoom, cv::Scalar(0, 255, 0));
 
+        cv::Rect zoom2 = cv::Rect(zoom.x+result_color.cols, zoom.y, zoom.width, zoom.height);
+        cv::rectangle(H, zoom, cv::Scalar(0, 255, 0));
+        cv::rectangle(H, zoom2, cv::Scalar(0, 255, 0));
+
         cv::imshow("ROI TRACK", H);
+//        cv::waitKey(1);
 
         return {new_peak + cv::Point(roi.x, roi.y), max};
     }
 
-    cv::Point multi_conv(cv::Mat eros, int filter_size, cv::Point previous_p){
+    cv::Point multi_conv(cv::Mat eros, int filter_size){
 
-        auto p = convolution(eros, filter_bank[filter_size], previous_p);
+        auto p = convolution(eros, filter_bank[filter_size]);
         if(p.s > 0){
             best = p;
         }
-
-        previous_p = best.p;
 
         return best.p;
     }
@@ -304,18 +299,6 @@ public:
         updateROI(starting_position);
 
         puck_corr = starting_position;
-        previous_p = starting_position;
-        first_conv = true;
-    }
-
-    void updateDetectedPos(cv::Point starting_position, int puck_size){
-        if (puck_size%2 == 0)
-            puck_size++;
-
-        this->puck_size=puck_size;
-        this->starting_position=starting_position;
-
-        updateROI(starting_position);
     }
 
     cv::Point2d KalmanPrediction(double dT){
@@ -390,23 +373,20 @@ public:
         if (puck_size<9)
             puck_size = 9;
 
-        yInfo()<<"previous point: "<<previous_p.x<<" "<<previous_p.y;
-        cv::Point2d puck_meas = multi_conv(eros, puck_size, previous_p);
+        cv::Point2d puck_meas = multi_conv(eros, puck_size);
         cv::Point2d puck_pred = KalmanPrediction(dT);
         puck_corr = KalmanCorrection(puck_meas);
 
         updateROI(puck_corr);
-        previous_p = puck_corr;
 
         cv::cvtColor(eros, eros_bgr, cv::COLOR_GRAY2BGR);
-//        cv::circle(eros_bgr, puck_corr, 5, cv::Scalar(255, 0, 255), cv::FILLED);
-//        cv::circle(eros_bgr, puck_pred, 5, cv::Scalar(0, 255, 255));
+        cv::circle(eros_bgr, puck_corr, 5, cv::Scalar(255, 0, 255), cv::FILLED);
+        cv::circle(eros_bgr, puck_pred, 5, cv::Scalar(0, 255, 255), cv::FILLED);
         cv::circle(eros_bgr, puck_meas, 5, cv::Scalar(0, 0, 255), cv::FILLED);
         cv::rectangle(eros_bgr, roi, cv::Scalar(0,255,0));
-        cv::rectangle(eros_bgr, zoom, cv::Scalar(255,0,0));
 
         cv::imshow("FULL TRACK", eros_bgr);
-        //cv::waitKey(0);
+       // cv::waitKey(1);
 
         yInfo()<<puck_size;
         yInfo()<<"("<<puck_meas.x<<","<<puck_meas.y<<") ("<<kf.statePre.at<float>(0)<<","<<kf.statePre.at<float>(1)<<") ("<<kf.statePost.at<float>(0)<<","<<kf.statePost.at<float>(1)<<")";
@@ -422,6 +402,7 @@ class asynch_thread:public Thread{
 private:
     cv::Mat eros;
     bool tracking_status;
+    std::mutex *m2;
 
     tracking tracker;
     detection detector;
@@ -432,7 +413,7 @@ public:
     asynch_thread(){}
 
     void run();
-    void initialise(cv::Mat &eros, int init_filter_width, cv::Rect roi, double thresh);
+    void initialise(cv::Mat &eros, int init_filter_width, cv::Rect roi, double thresh, std::mutex *m2);
     void setStatus(int tracking);
     int getStatus();
 };
@@ -442,7 +423,7 @@ class puckPosModule:public RFModule, public Thread{
 private:
 
     bool pause, first_it, success;
-    std::mutex m;
+    std::mutex m, m2;
     int w, h;
     hpecore::surface EROS_vis;
 

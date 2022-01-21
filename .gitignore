@@ -1,5 +1,19 @@
 # Build products
 build*
+puck_position/cmake-build-debug/
+puck_position/cmake-build-release/
+tracker/cmake-build-debug/
+tracker/cmake-build-release/
+python/*.png
+python/*.jpg
+python/*.txt
+python/*.csv
+python/*.tsv
+python/*.log
+tracker/*.csv
+tracker.zip
+other_files
+.idea
 
 # Linux temp files
 *~

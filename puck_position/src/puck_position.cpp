@@ -41,7 +41,7 @@ bool puckPosModule::configure(yarp::os::ResourceFinder& rf) {
     yarp::os::Network::connect("/atis3/AE:o", getName("/AE:i"), "fast_tcp");
 
     cv::Mat temp = EROS_vis.getSurface();
-    eros_thread.initialise(temp, 19, cv::Rect(40, 150, 550, 100), 5000);
+    eros_thread.initialise(temp, 19, cv::Rect(40, 150, 550, 100), 5000, &m2);
     eros_thread.start();
 
     pause = false;
@@ -50,8 +50,8 @@ bool puckPosModule::configure(yarp::os::ResourceFinder& rf) {
     cv::namedWindow("FULL TRACK", cv::WINDOW_NORMAL);
     cv::moveWindow("FULL TRACK", 0,0);
 
-//    cv::namedWindow("init filter", cv::WINDOW_NORMAL);
-//    cv::moveWindow("init filter", 300,300);
+    cv::namedWindow("init filter", cv::WINDOW_NORMAL);
+    cv::moveWindow("init filter", 300,300);
 
     cv::namedWindow("RESULT", cv::WINDOW_NORMAL);
     cv::moveWindow("RESULT", 400,400);
@@ -93,13 +93,17 @@ double puckPosModule::getPeriod() {
 bool puckPosModule::updateModule() {
 
 //    cv::waitKey(1);
-    int key = 0;
+    char key = 0;
+    m2.lock();
+    key = cv::waitKey(1);
+    m2.unlock();
+//    if(pause)
+//
+//    else{
+//        key = cv::waitKey(0);
+//    }
 
-    if(pause || !eros_thread.getStatus())
-        key = cv::waitKey(1);
-    else{
-        key = cv::waitKey(0) & 0xFF;
-    }
+    yInfo()<<"KEY:"<<key;
 
     if (key == 'p'){  // press p to pause
         pause = !pause;
@@ -111,6 +115,8 @@ bool puckPosModule::updateModule() {
     else if(key == 'n'){ // next
         m.unlock();
     }
+
+    yInfo()<<"UPDATE MODULE";
 
     return Thread::isRunning();
 }
@@ -125,9 +131,10 @@ void puckPosModule::onStop() {
     input_port.close();
 }
 
-void asynch_thread::initialise(cv::Mat &eros, int init_filter_width, cv::Rect roi, double thresh)
+void asynch_thread::initialise(cv::Mat &eros, int init_filter_width, cv::Rect roi, double thresh, std::mutex *m2)
 {
     this->eros = eros; //shallow copy (i.e. pointer)
+    this->m2=m2;
 
     detector.initialize(init_filter_width, roi, thresh); // create and visualize filter for detection phase
     tracker.initKalmanFilter();
@@ -144,15 +151,17 @@ int asynch_thread::getStatus(){
 
 void asynch_thread::run() {
 
-    cv::Mat eros_filtered, kernel, result_visualization;
+    cv::Mat eros_filtered, kernel, result_visualization, temp;
     double tic = yarp::os::Time::now();
     setStatus(0);
 
     while(!isStopping())
     {
-        cv::GaussianBlur(eros, eros_filtered, cv::Size(5, 5), 0);
+        eros.copyTo(temp);
+        cv::GaussianBlur(temp, eros_filtered, cv::Size(5, 5), 0);
 
         // --- DETECTION PHASE ----
+        m2->lock();
         if (!getStatus())
         {
             if(detector.detect(eros_filtered)){
@@ -174,6 +183,8 @@ void asynch_thread::run() {
                 yInfo()<<"first detected = ("<<detector.getDetection().x<<","<<detector.getDetection().y<<")";
             }
         }
+        m2->unlock();
+            yInfo() << "RUN ASYNCH THREAD";
 
 
     }
