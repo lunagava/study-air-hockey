@@ -79,9 +79,9 @@ public:
                 float &p = filter.at<float>(y, x);
                 double res = sqrt(pow(x-filter_width/2, 2.0) + pow(y-filter_width/2, 2.0));
                 if(res > fw2-1 + 1.5)
-                    p = 0.0;
+                    p = -1.0;
                 else if (res < fw2-1 - 1.5)
-                    p = -2;
+                    p = -1.0;
                 else
                     p = 1.0;
             }
@@ -91,7 +91,7 @@ public:
         cv::Mat temp;
         cv::normalize(filter, temp, 1, 0, cv::NORM_MINMAX);
 
-//        cv::imshow("init filter", filter);
+        cv::imshow("init filter", filter);
 //        cv::waitKey(1);
 
     }
@@ -153,7 +153,9 @@ private:
 
     void createFilterBank(int min, int max){
         for(int i=min; i<=max; i+=2)
-            filter_bank[i] = createFilter(i);
+            filter_bank[i] = createEllipse(i);
+//            filter_bank[i] = createEllipse2(i*2,i);
+//            filter_bank[i] = createFilter(i);
 
     }
 
@@ -166,7 +168,7 @@ private:
 
         cv::filter2D(surface, result_convolution, -1, filter, cv::Point(-1, -1), 0, cv::BORDER_ISOLATED); // look at border
 
-        cv::Rect zoom = Rect((roi.width-puck_size)*0.5, (roi.width-puck_size)*0.5, puck_size, puck_size);
+        cv::Rect zoom = Rect((roi.width-puck_size*2)*0.5, (roi.width-puck_size)*0.5, puck_size*2, puck_size);
 
         cv::minMaxLoc(result_convolution(zoom), &min, &max, &lowest_peak, &highest_peak);
 
@@ -177,6 +179,8 @@ private:
 
         cv::normalize(result_convolution, result_conv_normalized, 0, 255, cv::NORM_MINMAX);
 
+//        yInfo()<<"size: "<<result_convolution.cols;
+
         result_conv_normalized.convertTo(heat_map, CV_8U);
         cv::applyColorMap(heat_map, result_final, cv::COLORMAP_JET);
 
@@ -186,6 +190,7 @@ private:
 
         cv::circle(H, new_peak, 5, cv::Scalar(0, 0, 255), cv::FILLED);
         cv::rectangle(H, zoom, cv::Scalar(0, 255, 0));
+        cv::ellipse(H, cv::Point(zoom.x+puck_size, zoom.y+puck_size/2), Size(filter.cols/2, filter.rows/2), 0,0,360,cv::Scalar(0,0,255),1);
 
         cv::Rect zoom2 = cv::Rect(zoom.x+result_color.cols, zoom.y, zoom.width, zoom.height);
         cv::rectangle(H, zoom, cv::Scalar(0, 255, 0));
@@ -200,6 +205,14 @@ private:
     cv::Point multi_conv(cv::Mat eros, int filter_size){
 
         auto p = convolution(eros, filter_bank[filter_size]);
+
+        cv::Mat dog_filter_grey;
+        cv::normalize(filter_bank[filter_size], dog_filter_grey, 0, 255, cv::NORM_MINMAX);
+        cv::Mat vis_ellipse, color_ellipse;
+        dog_filter_grey.convertTo(vis_ellipse, CV_8U);
+        cv::cvtColor(vis_ellipse,color_ellipse, cv::COLOR_GRAY2BGR);
+        cv::imshow("ell", color_ellipse);
+
         if(p.s > 0){
             best = p;
         }
@@ -254,6 +267,13 @@ public:
         filter_bank_min = 9;
         filter_bank_max = 49;
         createFilterBank(filter_bank_min, filter_bank_max);
+
+//        cv::Mat vis_ellipse, color_ellipse;
+//        cv::Mat ellipse = createEllipse(1001);
+//        cv::normalize(ellipse, ellipse, 0, 255, cv::NORM_MINMAX);
+//        ellipse.convertTo(vis_ellipse, CV_8U);
+//
+//        cv::cvtColor(vis_ellipse,color_ellipse, cv::COLOR_GRAY2BGR);
 
         myfile.open("/data/kalman.txt");
         if (!myfile.is_open())
@@ -358,6 +378,72 @@ public:
         return filter;
     }
 
+    cv::Mat createEllipse(int puck_size){
+
+        double height = puck_size;
+        double width = 2*puck_size;
+        double offset = 0;
+        cv::Point origin((width+offset)/2, (height+offset)/2);
+
+        cv::Mat ell_filter = cv::Mat::zeros(height+offset, width+offset, CV_32F);
+
+        for(int x=0; x< ell_filter.cols; x++) {
+            for(int y=0; y< ell_filter.rows; y++) {
+                double dx = (pow(x,2) -2*origin.x*x + pow(origin.x,2))/pow((width+offset)/2,2);
+                double dy = (pow(y,2) -2*origin.y*y + pow(origin.y,2))/pow((height+offset)/2,2);
+                double value = dx+ dy;
+                if(value > 0.9)
+                    ell_filter.at<float>(y, x) = 0;
+                else if (value > 0.5 && value<=0.9)
+                    ell_filter.at<float>(y, x) = 1;
+                else
+                    ell_filter.at<float>(y, x) = 0;
+
+            }
+        }
+
+//        for(int i=0; i<ell_filter.rows;i++){
+//            for(int j=0; j<ell_filter.cols;j++){
+//                std::cout<<ell_filter.at<float>(i,j)<<" ";
+//            }
+//            std::cout<<std::endl;
+//        }
+
+        return ell_filter;
+    }
+
+    cv::Mat createEllipse2(int filter_width, int filter_height){
+
+        Mat g1 = getGaussianKernel(filter_height/2, 0.2*filter_height, CV_32F) * getGaussianKernel(filter_width/2, 0.2*filter_width, CV_32F).t();
+        cv::normalize(g1, g1, 0, 1, cv::NORM_MINMAX);
+        Mat g2 = getGaussianKernel(filter_height/2, 0.1*filter_height, CV_32F) * getGaussianKernel(filter_width/2, 0.1*filter_width, CV_32F).t();
+        cv::normalize(g2, g2, 0, 1, cv::NORM_MINMAX);
+        Mat dog_filter = g1 - g2;
+
+//        cv::imshow("g1", g1);
+//        cv::imshow("g2", g2);
+
+        cv::Mat dog_filter_norm, dog_filter_grey;
+        cv::normalize(dog_filter, dog_filter_norm, 0, 1, cv::NORM_MINMAX);
+
+//        for(int i=0; i<dog_filter_norm.rows;i++){
+//            for(int j=0; j<dog_filter_norm.cols;j++){
+//                std::cout<<dog_filter_norm.at<float>(i,j)<<" ";
+//            }
+//            std::cout<<std::endl;
+//        }
+//        std::cout<<std::endl;
+        for(int i=0; i<dog_filter_norm.rows;i++){
+            for(int j=0; j<dog_filter_norm.cols;j++){
+                if(dog_filter_norm.at<float>(i,j)>=0.9)
+                    dog_filter_norm.at<float>(i,j)=1;
+                else
+                    dog_filter_norm.at<float>(i,j)=0;
+            }
+        }
+        return dog_filter_norm;
+    }
+
 
 
     void track(cv::Mat eros, double dT){
@@ -386,12 +472,13 @@ public:
         cv::rectangle(eros_bgr, roi, cv::Scalar(0,255,0));
 
         cv::imshow("FULL TRACK", eros_bgr);
+
        // cv::waitKey(1);
 
         yInfo()<<puck_size;
         yInfo()<<"("<<puck_meas.x<<","<<puck_meas.y<<") ("<<kf.statePre.at<float>(0)<<","<<kf.statePre.at<float>(1)<<") ("<<kf.statePost.at<float>(0)<<","<<kf.statePost.at<float>(1)<<")";
 //        yInfo()<<puck_meas.x<<","<<puck_meas.y<<","<<puck_pred.x<<","<<puck_pred.y<<","<<puck_corr.x<<","<<puck_corr.y;
-//        myfile<<puck_size<<","<<(yarp::os::Time::now()-first_time)<<","<<puck_meas.x<<","<<puck_meas.y<<","<<puck_pred.x<<","<<puck_pred.y<<","<<puck_corr.x<<","<<puck_corr.y<<endl;
+        myfile<<puck_size<<","<<(yarp::os::Time::now()-first_time)<<","<<puck_meas.x<<","<<puck_meas.y<<","<<puck_pred.x<<","<<puck_pred.y<<","<<puck_corr.x<<","<<puck_corr.y<<endl;
     }
 
 

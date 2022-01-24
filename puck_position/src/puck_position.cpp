@@ -41,7 +41,7 @@ bool puckPosModule::configure(yarp::os::ResourceFinder& rf) {
     yarp::os::Network::connect("/atis3/AE:o", getName("/AE:i"), "fast_tcp");
 
     cv::Mat temp = EROS_vis.getSurface();
-    eros_thread.initialise(temp, 19, cv::Rect(40, 150, 550, 100), 5000, &m2);
+    eros_thread.initialise(temp, 19, cv::Rect(40, 150, 550, 100), 4000, &m2);
     eros_thread.start();
 
     pause = false;
@@ -50,8 +50,16 @@ bool puckPosModule::configure(yarp::os::ResourceFinder& rf) {
     cv::namedWindow("FULL TRACK", cv::WINDOW_NORMAL);
     cv::moveWindow("FULL TRACK", 0,0);
 
-    cv::namedWindow("init filter", cv::WINDOW_NORMAL);
+    cv::namedWindow("init filter", cv::WINDOW_AUTOSIZE);
     cv::moveWindow("init filter", 300,300);
+
+//    cv::namedWindow("g1", cv::WINDOW_AUTOSIZE);
+//    cv::moveWindow("g1", 900,900);
+//    cv::namedWindow("g2", cv::WINDOW_AUTOSIZE);
+//    cv::moveWindow("g2", 800,800);
+
+    cv::namedWindow("ell", cv::WINDOW_AUTOSIZE);
+    cv::moveWindow("ell", 500,500);
 
     cv::namedWindow("RESULT", cv::WINDOW_NORMAL);
     cv::moveWindow("RESULT", 400,400);
@@ -184,8 +192,7 @@ void asynch_thread::run() {
             }
         }
         m2->unlock();
-            yInfo() << "RUN ASYNCH THREAD";
-
+        yInfo() << "RUN ASYNCH THREAD";
 
     }
 
