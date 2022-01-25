@@ -47,26 +47,23 @@ bool puckPosModule::configure(yarp::os::ResourceFinder& rf) {
     pause = false;
     first_it = true;
 
-    cv::namedWindow("FULL TRACK", cv::WINDOW_NORMAL);
-    cv::moveWindow("FULL TRACK", 0,0);
-
-    cv::namedWindow("init filter", cv::WINDOW_AUTOSIZE);
-    cv::moveWindow("init filter", 300,300);
-
-//    cv::namedWindow("g1", cv::WINDOW_AUTOSIZE);
-//    cv::moveWindow("g1", 900,900);
-//    cv::namedWindow("g2", cv::WINDOW_AUTOSIZE);
-//    cv::moveWindow("g2", 800,800);
-
-    cv::namedWindow("ell", cv::WINDOW_AUTOSIZE);
-    cv::moveWindow("ell", 500,500);
-
-    cv::namedWindow("RESULT", cv::WINDOW_NORMAL);
-    cv::moveWindow("RESULT", 400,400);
-
+//    cv::namedWindow("FULL TRACK", cv::WINDOW_NORMAL);
+//    cv::moveWindow("FULL TRACK", 0,0);
+//
+//    cv::namedWindow("init filter", cv::WINDOW_AUTOSIZE);
+//    cv::moveWindow("init filter", 300,300);
+//
+//    cv::namedWindow("ell", cv::WINDOW_AUTOSIZE);
+//    cv::moveWindow("ell", 500,500);
+//
+//    cv::namedWindow("RESULT", cv::WINDOW_NORMAL);
+//    cv::moveWindow("RESULT", 400,400);
+//
     cv::namedWindow("ROI TRACK", cv::WINDOW_NORMAL);
     cv::moveWindow("ROI TRACK", 600,600);
 
+    cv::namedWindow("GAUSSIAN MUL", cv::WINDOW_NORMAL);
+    cv::moveWindow("GAUSSIAN MUL", 1000,1000);
 
     return Thread::start();
 }
@@ -103,15 +100,18 @@ bool puckPosModule::updateModule() {
 //    cv::waitKey(1);
     char key = 0;
     m2.lock();
+
+    cv::Mat eros_bgr;
+    cv::Mat eros_surface = EROS_vis.getSurface();
+    cv::cvtColor(eros_surface, eros_bgr, cv::COLOR_GRAY2BGR);
+
+    cv::Point puck_position = eros_thread.getState();
+
+    cv::circle(eros_bgr, puck_position,5, cv::Scalar(0,0,255), cv::FILLED);
+    cv::imshow("FULL TRACK", eros_bgr);
+
     key = cv::waitKey(1);
     m2.unlock();
-//    if(pause)
-//
-//    else{
-//        key = cv::waitKey(0);
-//    }
-
-    yInfo()<<"KEY:"<<key;
 
     if (key == 'p'){  // press p to pause
         pause = !pause;
@@ -123,8 +123,11 @@ bool puckPosModule::updateModule() {
     else if(key == 'n'){ // next
         m.unlock();
     }
+    else if(key==32){
+        eros_thread.setStatus(0);
+    }
 
-    yInfo()<<"UPDATE MODULE";
+//    yInfo()<<"UPDATE MODULE";
 
     return Thread::isRunning();
 }
@@ -157,6 +160,10 @@ int asynch_thread::getStatus(){
     return tracking_status;
 }
 
+cv::Point asynch_thread::getState(){
+    return tracker.getPosition();
+}
+
 void asynch_thread::run() {
 
     cv::Mat eros_filtered, kernel, result_visualization, temp;
@@ -182,17 +189,17 @@ void asynch_thread::run() {
         else{
             double dT = yarp::os::Time::now() - tic;
             tic += dT;
-//            yInfo() << "Running at a cool " << 1.0 / dT << "Hz";
+            yInfo() << "Running at a cool " << 1.0 / dT << "Hz";
 
             tracker.track(eros_filtered, dT);
-            if(detector.detect(eros_filtered)){
-                setStatus(1);
-                tracker.resetKalman(detector.getDetection(), detector.getSize());
-                yInfo()<<"first detected = ("<<detector.getDetection().x<<","<<detector.getDetection().y<<")";
-            }
+//            if(detector.detect(eros_filtered)){
+//                setStatus(1);
+//                tracker.resetKalman(detector.getDetection(), detector.getSize());
+////                yInfo()<<"first detected = ("<<detector.getDetection().x<<","<<detector.getDetection().y<<")";
+//            }
         }
         m2->unlock();
-        yInfo() << "RUN ASYNCH THREAD";
+//        yInfo() << "RUN ASYNCH THREAD";
 
     }
 
