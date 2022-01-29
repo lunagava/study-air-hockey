@@ -110,6 +110,8 @@ bool puckPosModule::updateModule() {
     cv::circle(eros_bgr, puck_position,5, cv::Scalar(0,0,255), cv::FILLED);
     cv::imshow("FULL TRACK", eros_bgr);
 
+    yInfo()<<"Puck position"<<puck_position.x<<" "<<puck_position.y;
+
     key = cv::waitKey(1);
     m2.unlock();
 
@@ -189,7 +191,7 @@ void asynch_thread::run() {
         else{
             double dT = yarp::os::Time::now() - tic;
             tic += dT;
-            yInfo() << "Running at a cool " << 1.0 / dT << "Hz";
+//            yInfo() << "Running at a cool " << 1.0 / dT << "Hz";
 
             tracker.track(eros_filtered, dT);
 //            if(detector.detect(eros_filtered)){

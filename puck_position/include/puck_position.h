@@ -64,6 +64,39 @@ protected:
 
 public:
 
+    cv::Mat createEllipse(int puck_size){
+
+        double height = puck_size;
+        double width = 2*puck_size;
+        cv::Point origin((width)/2, (height)/2);
+
+        cv::Mat ell_filter = cv::Mat::zeros(height, width, CV_32F);
+
+        for(int x=0; x< ell_filter.cols; x++) {
+            for(int y=0; y< ell_filter.rows; y++) {
+                double dx = (pow(x,2) -2*origin.x*x + pow(origin.x,2))/pow((width)/2,2);
+                double dy = (pow(y,2) -2*origin.y*y + pow(origin.y,2))/pow((height)/2,2);
+                double value = dx+ dy;
+                if(value > 0.8)
+                    ell_filter.at<float>(y, x) = 0;
+                else if (value > 0.5 && value<=0.8)
+                    ell_filter.at<float>(y, x) = 1;
+                else
+                    ell_filter.at<float>(y, x) = 0;
+
+            }
+        }
+
+//        for(int i=0; i<ell_filter.rows;i++){
+//            for(int j=0; j<ell_filter.cols;j++){
+//                std::cout<<ell_filter.at<float>(i,j)<<" ";
+//            }
+//            std::cout<<std::endl;
+//        }
+
+        return ell_filter;
+    }
+
 
     void initialize(int filter_width, cv::Rect roi, double thresh){
 
@@ -71,6 +104,9 @@ public:
         this -> thresh = thresh;
 
         // create filter
+
+//        filter = createEllipse(filter_width);
+
         double fw2 = (double)filter_width/2.0;
         filter = cv::Mat(filter_width, filter_width, CV_32F);
 
@@ -88,8 +124,8 @@ public:
         }
 
         // visualize filter
-        cv::Mat temp;
-        cv::normalize(filter, temp, 1, 0, cv::NORM_MINMAX);
+//        cv::Mat temp;
+//        cv::normalize(filter, temp, 1, 0, cv::NORM_MINMAX);
 
 //        cv::imshow("init filter", filter);
 //        cv::waitKey(1);
@@ -143,6 +179,7 @@ private:
     double factor; // should be positive (roi width > puck size) and fixed
     int puck_size;
     map<int, cv::Mat> filter_bank;
+    map< pair<int, int>, cv::Mat> filter_set;
     int filter_bank_min, filter_bank_max;
     ofstream myfile;
     double first_time;
@@ -152,8 +189,12 @@ private:
     score_point best;
 
     void createFilterBank(int min, int max){
-        for(int i=min; i<=max; i+=2)
-            filter_bank[i] = createEllipse(i);
+        for(int i=min; i<=max; i+=2){
+            for(int j=min; j<=max; j+=2){
+                filter_set[make_pair(i,j)] = createCustom(i, j);
+            }
+        }
+//            filter_bank[i] = createEllipse(i);
 //            filter_bank[i] = createEllipse2(i*2,i);
 //            filter_bank[i] = createFilter(i);
 
@@ -168,7 +209,7 @@ private:
 
         cv::filter2D(surface, result_convolution, -1, filter, cv::Point(-1, -1), 0, cv::BORDER_ISOLATED); // look at border
 
-        cv::Rect zoom = Rect((roi.width-puck_size*2)*0.5, (roi.width-puck_size)*0.5, puck_size*2, puck_size);
+        cv::Rect zoom = Rect((roi.width-filter.cols)*0.5, (roi.height-filter.rows)*0.5, filter.cols, filter.rows);
         cv::minMaxLoc(result_convolution(zoom), &min, &max, &lowest_peak, &highest_peak);
 
         cv::normalize(surface, result_surface, 255, 0, cv::NORM_MINMAX);
@@ -180,7 +221,7 @@ private:
 
         result_conv_normalized.convertTo(heat_map, CV_8U);
 
-        Mat g = getGaussianKernel(puck_size, 0.7*filter.rows, CV_32F) * getGaussianKernel(puck_size*2, 0.7*filter.cols, CV_32F).t();
+        Mat g = getGaussianKernel(filter.rows, 0.8*filter.rows, CV_32F) * getGaussianKernel(filter.cols, 0.8*filter.cols, CV_32F).t();
         Mat heat_map_zoom = result_conv_normalized(zoom);
         Mat heat_map_filtered = heat_map_zoom.mul(g);
 
@@ -200,7 +241,9 @@ private:
         cv::circle(H, new_peak, 5, cv::Scalar(0, 0, 255), cv::FILLED);
         cv::circle(H, new_peak_filtered, 5, cv::Scalar(0, 255, 0), cv::FILLED);
         cv::rectangle(H, zoom, cv::Scalar(0, 255, 0));
-        cv::ellipse(H, cv::Point(zoom.x+puck_size, zoom.y+puck_size/2), Size(filter.cols/2, filter.rows/2), 0,0,360,cv::Scalar(0,0,255),1);
+        cv::ellipse(H, cv::Point(zoom.x+filter.cols*0.5, zoom.y+filter.rows*0.5), Size(filter.cols*0.5, filter.rows*0.5), 0,0,360,cv::Scalar(0,0,255),1);
+
+        yInfo()<<"width = "<<filter.cols<<", height = "<<filter.rows;
 
         cv::Rect zoom2 = cv::Rect(zoom.x+result_color.cols, zoom.y, zoom.width, zoom.height);
         cv::rectangle(H, zoom, cv::Scalar(0, 255, 0));
@@ -213,16 +256,16 @@ private:
         return {new_peak_filtered + cv::Point(roi.x, roi.y), max};
     }
 
-    cv::Point multi_conv(cv::Mat eros, int filter_size){
+    cv::Point multi_conv(cv::Mat eros, int width, int height){
 
-        auto p = convolution(eros, filter_bank[filter_size]);
+        auto p = convolution(eros, filter_set[make_pair(width,height)]);
 
         cv::Mat dog_filter_grey;
-        cv::normalize(filter_bank[filter_size], dog_filter_grey, 0, 255, cv::NORM_MINMAX);
+        cv::normalize(filter_set[make_pair(width,height)], dog_filter_grey, 0, 255, cv::NORM_MINMAX);
         cv::Mat vis_ellipse, color_ellipse;
         dog_filter_grey.convertTo(vis_ellipse, CV_8U);
         cv::cvtColor(vis_ellipse,color_ellipse, cv::COLOR_GRAY2BGR);
-//        cv::imshow("ell", color_ellipse);
+        cv::imshow("ell", color_ellipse);
 
         if(p.s > 0){
             best = p;
@@ -272,11 +315,11 @@ public:
         // Measurement Noise Covariance Matrix R
         cv::setIdentity(kf.measurementNoiseCov, cv::Scalar(1));
 
-        factor = 3;
+        factor = 2;
         roi_full = cv::Rect(0,0,640,480);
 
-        filter_bank_min = 9;
-        filter_bank_max = 49;
+        filter_bank_min = 5;
+        filter_bank_max = 51;
         createFilterBank(filter_bank_min, filter_bank_max);
 
 //        cv::Mat vis_ellipse, color_ellipse;
@@ -285,24 +328,26 @@ public:
 //        ellipse.convertTo(vis_ellipse, CV_8U);
 //
 //        cv::cvtColor(vis_ellipse,color_ellipse, cv::COLOR_GRAY2BGR);
+//        cv::imshow("ell", color_ellipse);
 
-        myfile.open("/data/kalman.txt");
-        if (!myfile.is_open())
-        {
-            yError()<<"Could not open file for kalman prediction and correction";
-            return;
-        }
+
+//        myfile.open("/data/kalman.txt");
+//        if (!myfile.is_open())
+//        {
+//            yError()<<"Could not open file for kalman prediction and correction";
+//            return;
+//        }
 
         first_time = yarp::os::Time::now();
     }
 
-    void updateROI(Point2d position){
+    void updateROI(Point2d position, int width, int height){
 
         float u = position.x;
         float v = position.y;
 
         //puck_size = 0.1*v;
-        int roi_width = factor*puck_size;
+        int roi_width = factor*width;
 
         roi = cv::Rect(u - roi_width/2, v - roi_width/2, roi_width, roi_width) & roi_full;
     }
@@ -327,7 +372,7 @@ public:
         kf.statePost.at<float>(2) = 0;
         kf.statePost.at<float>(3) = 0;
 
-        updateROI(starting_position);
+        updateROI(starting_position, 19, 38);
 
         puck_meas = starting_position;
     }
@@ -389,10 +434,41 @@ public:
         return filter;
     }
 
+    cv::Mat createCustom(int width, int height){
+
+        cv::Point2d origin((width)/2, (height)/2);
+
+        cv::Mat ell_filter = cv::Mat::zeros(height, width, CV_32F);
+
+        for(int x=0; x< ell_filter.cols; x++) {
+            for(int y=0; y< ell_filter.rows; y++) {
+                double dx = (pow(x,2) -2*origin.x*x + pow(origin.x,2))/pow((width)/2,2);
+                double dy = (pow(y,2) -2*origin.y*y + pow(origin.y,2))/pow((height)/2,2);
+                double value = dx+ dy;
+                if(value > 1)
+                    ell_filter.at<float>(y, x) = 0;
+                else if (value > 0.6 && value<=1)
+                    ell_filter.at<float>(y, x) = 1;
+                else
+                    ell_filter.at<float>(y, x) = 0;
+
+            }
+        }
+
+//        for(int i=0; i<ell_filter.rows;i++){
+//            for(int j=0; j<ell_filter.cols;j++){
+//                std::cout<<ell_filter.at<float>(i,j)<<" ";
+//            }
+//            std::cout<<std::endl;
+//        }
+
+        return ell_filter;
+    }
+
     cv::Mat createEllipse(int puck_size){
 
         double height = puck_size;
-        double width = 2*puck_size;
+        double width = 1.5*puck_size;
         cv::Point origin((width)/2, (height)/2);
 
         cv::Mat ell_filter = cv::Mat::zeros(height, width, CV_32F);
@@ -402,9 +478,9 @@ public:
                 double dx = (pow(x,2) -2*origin.x*x + pow(origin.x,2))/pow((width)/2,2);
                 double dy = (pow(y,2) -2*origin.y*y + pow(origin.y,2))/pow((height)/2,2);
                 double value = dx+ dy;
-                if(value > 0.8)
+                if(value > 1)
                     ell_filter.at<float>(y, x) = 0;
-                else if (value > 0.5 && value<=0.8)
+                else if (value > 0.7 && value<=1)
                     ell_filter.at<float>(y, x) = 1;
                 else
                     ell_filter.at<float>(y, x) = 0;
@@ -459,21 +535,33 @@ public:
     void track(cv::Mat eros, double dT){
 
         static cv::Mat eros_bgr;
+        int last_x = puck_meas.x;
         int last_y = puck_meas.y;
-        int filter_size = 0.09*last_y+1.8;
-        puck_size = filter_size;
+//        int filter_size = 0.09*last_y+1.8;
+//        puck_size = filter_size;
 
-        if (puck_size%2 == 0)
-            puck_size++;
+//        if (puck_size%2 == 0)
+//            puck_size++;
+//
+//        if (puck_size<9)
+//            puck_size = 9;
 
-        if (puck_size<9)
-            puck_size = 9;
+//        yInfo()<<puck_size;
 
-        puck_meas = multi_conv(eros, puck_size);
+        double width = 6.819010562059759-0.0015986852510628132*last_x+0.1246702563975636*last_y;
+        double height = 1.4487326851033693-0.0012157382868591081*last_x+0.0927668580003834*last_y;
+        height = 2 * floor(height/2) + 1;
+        width = 2 * floor(width/2) + 1;
+
+        if(height<7)
+            height = 7;
+        if(width<7)
+            width = 7;
+        puck_meas = multi_conv(eros, width, height);
 //        cv::Point2d puck_pred = KalmanPrediction(dT);
 //        puck_corr = KalmanCorrection(puck_meas);
 
-        updateROI(puck_meas);
+        updateROI(puck_meas, width, height);
 
 //        cv::cvtColor(eros, eros_bgr, cv::COLOR_GRAY2BGR);
 //        cv::circle(eros_bgr, puck_corr, 5, cv::Scalar(255, 0, 255), cv::FILLED);
