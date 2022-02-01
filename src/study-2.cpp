@@ -53,9 +53,9 @@
 #include <yarp/sig/Matrix.h>
 #include <yarp/math/Math.h>
 #include <yarp/os/all.h>
-#include <event-driven/all.h>
+//#include <event-driven/all.h>
 
-using namespace ev;
+//using namespace ev;
 using namespace cv;
 
 /************************************************************************/
@@ -91,10 +91,10 @@ class ControllerModule: public yarp::os::RFModule, public yarp::os::Thread
     int label;
     yarp::sig::Vector eye_pos, eye_orient, head_pos, head_orient;
 
-    deque<LabelledAE> out_queue;
-    LabelledAE ev;
+//    deque<LabelledAE> out_queue;
+//    LabelledAE ev;
 
-    vWritePort output_port;
+//    vWritePort output_port;
     yarp::os::BufferedPort<yarp::os::Bottle> targetPort;
     yarp::os::BufferedPort<yarp::os::Bottle> yposPort, puckPort, hand_pix_port, eyePort;
     yarp::os::RpcServer handlerPort;
@@ -322,8 +322,8 @@ class ControllerModule: public yarp::os::RFModule, public yarp::os::Thread
             return -1;
         }
 
-        if(!output_port.open(getName() + "/LAE:o"))
-            return false;
+//        if(!output_port.open(getName() + "/LAE:o"))
+//            return false;
 
         first_cycle = true;
         reached = true;
@@ -403,7 +403,7 @@ class ControllerModule: public yarp::os::RFModule, public yarp::os::Thread
         eyePort.close();
         puckPort.close();
         hand_pix_port.close();
-        output_port.close();
+//        output_port.close();
 
         myFile1.close();
         myFile2.close();
@@ -516,12 +516,12 @@ class ControllerModule: public yarp::os::RFModule, public yarp::os::Thread
 ////            }
 ////        }
 //
-//        if (first_cycle){
-//            target = y_max;
-//            first_cycle = false;
-//        }
+        if (first_cycle){
+            target = y_max;
+            first_cycle = false;
+        }
 
-        reached = genLinTraj.computeCoeff(target);
+        genLinTraj.computeCoeff(target);
 
 //        std::cout<<"target reached: "<<reached<<std::endl;
 
@@ -529,20 +529,20 @@ class ControllerModule: public yarp::os::RFModule, public yarp::os::Thread
         for (size_t i = 0; i < pos_torso.size(); i++) {
             pos_torso[pos_torso.size() - 1 - i] = interp[i]->operator()(genLinTraj.getPos());
         }
-        iposd[0]->setPositions(pos_torso.data());
+//        iposd[0]->setPositions(pos_torso.data());
 
         std::vector<double> pos_arm(7);
         for (size_t i = 0; i < pos_arm.size(); i++) {
             pos_arm[i] = interp[pos_torso.size() + i]->operator()(genLinTraj.getPos());
         }
-        iposd[1]->setPositions(pos_arm.size(), std::vector<int>({0, 1, 2, 3, 4, 5, 6, 7}).data(),
-                               pos_arm.data());
+//        iposd[1]->setPositions(pos_arm.size(), std::vector<int>({0, 1, 2, 3, 4, 5, 6, 7}).data(),
+//                               pos_arm.data());
 
         std::vector<double> pos_head(6);
         for (size_t i = 0; i < pos_head.size(); i++) {
             pos_head[i] = interp[pos_torso.size() + pos_arm.size() + i]->operator()(genLinTraj.getPos());
         }
-        iposd[2]->setPositions(pos_head.data());
+//        iposd[2]->setPositions(pos_head.data());
 
         yarp::sig::Vector x_actual, o_actual;
         arm->getPose(x_actual, o_actual);

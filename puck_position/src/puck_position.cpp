@@ -41,7 +41,7 @@ bool puckPosModule::configure(yarp::os::ResourceFinder& rf) {
     yarp::os::Network::connect("/atis3/AE:o", getName("/AE:i"), "fast_tcp");
 
     cv::Mat temp = EROS_vis.getSurface();
-    eros_thread.initialise(temp, 19, cv::Rect(40, 150, 550, 100), 4000, &m2);
+    eros_thread.initialise(temp, 19, cv::Rect(60, 150, 500, 100), 4000, &m2);
     eros_thread.start();
 
     pause = false;
@@ -110,7 +110,7 @@ bool puckPosModule::updateModule() {
     cv::circle(eros_bgr, puck_position,5, cv::Scalar(0,0,255), cv::FILLED);
     cv::imshow("FULL TRACK", eros_bgr);
 
-    yInfo()<<"Puck position"<<puck_position.x<<" "<<puck_position.y;
+//    yInfo()<<"Puck position"<<puck_position.x<<" "<<puck_position.y;
 
     key = cv::waitKey(1);
     m2.unlock();
@@ -152,6 +152,15 @@ void asynch_thread::initialise(cv::Mat &eros, int init_filter_width, cv::Rect ro
     detector.initialize(init_filter_width, roi, thresh); // create and visualize filter for detection phase
     tracker.initKalmanFilter();
 
+    first_instant = yarp::os::Time::now();
+
+    file.open("/data/condition_detection.txt");
+    if (!file.is_open())
+    {
+        yError()<<"Could not open file for kalman prediction and correction";
+        return;
+    }
+
 }
 
 void asynch_thread::setStatus(int tracking_status) {
@@ -170,6 +179,7 @@ void asynch_thread::run() {
 
     cv::Mat eros_filtered, kernel, result_visualization, temp;
     double tic = yarp::os::Time::now();
+    double detection_time, elapsed_time;
     setStatus(0);
 
     while(!isStopping())
@@ -184,25 +194,36 @@ void asynch_thread::run() {
             if(detector.detect(eros_filtered)){
                 setStatus(1);
                 tracker.resetKalman(detector.getDetection(), detector.getSize());
-                yInfo()<<"first detected = ("<<detector.getDetection().x<<","<<detector.getDetection().y<<")";
+                detection_time = yarp::os::Time::now();
+//                yInfo()<<"first detected = ("<<detector.getDetection().x<<","<<detector.getDetection().y<<")";
             }
         }
         // ---- TRACKING PHASE ----
         else{
+
             double dT = yarp::os::Time::now() - tic;
             tic += dT;
-//            yInfo() << "Running at a cool " << 1.0 / dT << "Hz";
-
+            yInfo() << "Running at a cool " << 1.0 / dT << "Hz";
             tracker.track(eros_filtered, dT);
-//            if(detector.detect(eros_filtered)){
-//                setStatus(1);
-//                tracker.resetKalman(detector.getDetection(), detector.getSize());
-////                yInfo()<<"first detected = ("<<detector.getDetection().x<<","<<detector.getDetection().y<<")";
+
+//            if(!detector.detect(eros_filtered)){
+//                elapsed_time = yarp::os::Time::now() - detection_time;
 //            }
+//
+//            yInfo()<<elapsed_time;
+//            if(elapsed_time > 3){
+//                setStatus(0);
+//            }
+
+            if(detector.detect(eros_filtered)){
+                setStatus(1);
+                tracker.resetKalman(detector.getDetection(), detector.getSize());
+                detection_time = yarp::os::Time::now();
+//                yInfo()<<"first detected = ("<<detector.getDetection().x<<","<<detector.getDetection().y<<")";
+            }
+
         }
         m2->unlock();
-//        yInfo() << "RUN ASYNCH THREAD";
-
     }
 
 }
