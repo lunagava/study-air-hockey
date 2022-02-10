@@ -266,6 +266,8 @@ class ControllerModule: public yarp::os::RFModule
         gaze->lookAtFixationPoint(fixation);
         gaze->waitMotionDone(wait_ping, wait_tmo);
 
+        yarp::os::Time::delay(3);
+
         yarp::sig::Vector xdhat, odhat, q_arm;
         arm->getDesired(xdhat, odhat, q_arm);
 
