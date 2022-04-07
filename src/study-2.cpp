@@ -20,7 +20,6 @@
 #include <fstream>
 
 #include <yarp/os/Network.h>
-#include <yarp/os/LogStream.h>
 #include <yarp/os/Value.h>
 #include <yarp/os/Property.h>
 #include <yarp/os/Bottle.h>
@@ -53,7 +52,7 @@
 #include <yarp/sig/Matrix.h>
 #include <yarp/math/Math.h>
 #include <yarp/os/all.h>
-//#include <event-driven/all.h>
+#include <event-driven/all.h>
 
 //using namespace ev;
 using namespace cv;
@@ -84,6 +83,7 @@ class ControllerModule: public yarp::os::RFModule, public yarp::os::Thread
     std::vector<double> fingers_posture;
     std::string which_arm, robot;
     double velTraj;
+    double prev_t;
 
     std::ofstream myFile1, myFile2, myFile3;
     double puck_velocity;
@@ -98,6 +98,7 @@ class ControllerModule: public yarp::os::RFModule, public yarp::os::Thread
     yarp::os::BufferedPort<yarp::os::Bottle> targetPort;
     yarp::os::BufferedPort<yarp::os::Bottle> yposPort, puckPort, hand_pix_port, eyePort;
     yarp::os::RpcServer handlerPort;
+    ev::vReadPort< vector<ev::AE> > gen1_input_port;
 
     linearTraj genLinTraj;
 
@@ -105,6 +106,9 @@ class ControllerModule: public yarp::os::RFModule, public yarp::os::Thread
 
     bool mobility_condition, first_cycle, reached;
     yarp::sig::Vector right_bottom_vertex, left_bottom_vertex, right_top_vertex, left_top_vertex;
+    yarp::sig::Vector star_right_bottom, star_left_bottom, star_right_top, star_left_top;
+
+    cv::Mat proj_image;
 
     /********************************************************************/
     void helperOpenDevice(const int i, const std::string& device_name) {
@@ -155,12 +159,12 @@ class ControllerModule: public yarp::os::RFModule, public yarp::os::Thread
                 }
                 break;
         }
-        ipos[i]->positionMove(poss.data());
-        auto done = false;
-        while(!done) {
-            yarp::os::Time::delay(1.);
-            ipos[i]->checkMotionDone(&done);
-        }
+//        ipos[i]->positionMove(poss.data());
+//        auto done = false;
+//        while(!done) {
+//            yarp::os::Time::delay(1.);
+//            ipos[i]->checkMotionDone(&done);
+//        }
 
         std::fill(begin(modes), end(modes), VOCAB_CM_POSITION_DIRECT);
         imod->setControlModes(modes.data());
@@ -301,32 +305,42 @@ class ControllerModule: public yarp::os::RFModule, public yarp::os::Thread
         // attach the callback respond()
         attach(handlerPort);
 
-        myFile1.open("/code/luna/study-air-hockey/time.txt");
+        if(!gen1_input_port.open(getName() + "/AE:i"))
+            return false;
+
+        myFile1.open("/code/luna/study-air-hockey/movingCam_exp2.txt");
         if (!myFile1.is_open())
         {
             yError()<<"Could not open file for updateModule loop time";
             return -1;
         }
 
-        myFile2.open("/code/luna/study-air-hockey/info.txt");
-        if (!myFile2.is_open())
-        {
-            yError()<<"Could not open file for printing COMs";
-            return -1;
-        }
-
-        myFile3.open("/code/luna/study-air-hockey/projection_tests.txt");
-        if (!myFile3.is_open())
-        {
-            yError()<<"Could not open file for printing projections";
-            return -1;
-        }
+//        myFile2.open("/code/luna/study-air-hockey/info.txt");
+//        if (!myFile2.is_open())
+//        {
+//            yError()<<"Could not open file for printing COMs";
+//            return -1;
+//        }
+//
+//        myFile3.open("/code/luna/study-air-hockey/projection_tests.txt");
+//        if (!myFile3.is_open())
+//        {
+//            yError()<<"Could not open file for printing projections";
+//            return -1;
+//        }
 
 //        if(!output_port.open(getName() + "/LAE:o"))
 //            return false;
 
         first_cycle = true;
         reached = true;
+
+        prev_t = yarp::os::Time::now();
+
+        proj_image = cv::Mat::zeros(240,304,CV_8UC3);
+
+        cv::namedWindow("proj_image", cv::WINDOW_AUTOSIZE);
+        cv::moveWindow("proj_image", 600,600);
 
         return Thread::start();
     }
@@ -335,7 +349,17 @@ class ControllerModule: public yarp::os::RFModule, public yarp::os::Thread
 
 //        std::cout << "inside RUN"<<std::endl;
 
+        Stamp ystamp;
         while (Thread::isRunning()) {
+
+            unsigned int nqs = gen1_input_port.queryunprocessed();
+            for (int i = 0; i < nqs; i++) {
+                const vector<ev::AE> *q = gen1_input_port.read(ystamp);
+                if (!q || Thread::isStopping()) return;
+                for (auto &v : *q) {
+                    proj_image.at<cv::Vec3b>(v.y,v.x)=cv::Vec3b(255, 255, 255);
+                }
+            }
 
 ////            std::cout << "inside LOOP"<<std::endl;
 //            yarp::os::Bottle *b = puckPort.read();
@@ -413,7 +437,7 @@ class ControllerModule: public yarp::os::RFModule, public yarp::os::Thread
 
     /********************************************************************/
     double getPeriod() override {
-        return 0.01;
+        return 0.05;
     }
 
     std::tuple<yarp::sig::Vector, yarp::sig::Vector, yarp::sig::Vector, yarp::sig::Vector> project_four_vertices_table(){
@@ -436,13 +460,56 @@ class ControllerModule: public yarp::os::RFModule, public yarp::os::Thread
         return std::make_tuple(right_bottom_pix,left_bottom_pix,right_top_pix,left_top_pix);
     }
 
+    std::tuple<yarp::sig::Vector, yarp::sig::Vector, yarp::sig::Vector, yarp::sig::Vector> project_four_stars_table(){
+
+        yarp::sig::Vector right_bottom_3d, left_bottom_3d, right_top_3d, left_top_3d;
+        yarp::sig::Vector right_bottom_pix, left_bottom_pix, right_top_pix, left_top_pix;
+        std::vector<yarp::sig::Vector> table_stars;
+
+        right_bottom_3d.resize(3); left_bottom_3d.resize(3); right_top_3d.resize(3); left_top_3d.resize(3);
+
+        double height_table_root = -0.11;
+        left_bottom_3d[0]=-0.44; right_bottom_3d[0]=-0.44; left_top_3d[0]=-1.84; right_top_3d[0]=-1.84;
+        left_bottom_3d[1]=-0.22; right_bottom_3d[1]=0.20; left_top_3d[1]=-0.22; right_top_3d[1]=0.20;
+        left_bottom_3d[2]=height_table_root; right_bottom_3d[2]=height_table_root; left_top_3d[2]=height_table_root; right_top_3d[2]=height_table_root;
+
+        right_bottom_pix = projectToVisualSpace(right_bottom_3d);
+        left_bottom_pix = projectToVisualSpace(left_bottom_3d);
+        right_top_pix = projectToVisualSpace(right_top_3d);
+        left_top_pix = projectToVisualSpace(left_top_3d);
+
+        return std::make_tuple(right_bottom_pix,left_bottom_pix,right_top_pix,left_top_pix);
+    }
+
     /********************************************************************/
     bool updateModule() override {
 
         std::tie(right_bottom_vertex, left_bottom_vertex, right_top_vertex, left_top_vertex) = project_four_vertices_table();
+        std::tie(star_right_bottom, star_left_bottom, star_right_top, star_left_top) = project_four_stars_table();
+
+        yInfo()<<star_right_bottom[0]<<" "<<star_right_bottom[1]<<" "<<star_left_bottom[0]<<" "<<star_left_bottom[1];
+        yInfo()<<star_right_top[0]<<" "<<star_right_top[1]<<" "<<star_left_top[0]<<" "<<star_left_top[1];
+
+//        cv::circle(proj_image, cv::Point(star_right_bottom[0], star_right_bottom[1]), 5, cv::Scalar(0, 255, 0), -1, 8);
+//        cv::circle(proj_image, cv::Point(star_left_bottom[0], star_left_bottom[1]), 5, cv::Scalar(0, 255, 0), -1, 8);
+//        cv::circle(proj_image, cv::Point(star_right_top[0], star_right_top[1]), 5, cv::Scalar(0, 255, 0), -1, 8);
+//        cv::circle(proj_image, cv::Point(star_left_top[0], star_left_top[1]), 5, cv::Scalar(0, 255, 0), -1, 8);
+//
+//        cv::circle(proj_image, cv::Point(right_bottom_vertex[0], right_bottom_vertex[1]), 5, cv::Scalar(255, 0, 0), -1, 8);
+//        cv::circle(proj_image, cv::Point(left_bottom_vertex[0], left_bottom_vertex[1]), 5, cv::Scalar(255, 0, 0), -1, 8);
+//        cv::circle(proj_image, cv::Point(right_top_vertex[0], right_top_vertex[1]), 5, cv::Scalar(255, 0, 0), -1, 8);
+//        cv::circle(proj_image, cv::Point(left_top_vertex[0], left_top_vertex[1]), 5, cv::Scalar(255, 0, 0), -1, 8);
+
         yarp::sig::Vector currentArmPos, currentArmOrient, hand_pix;
         arm->getPose(currentArmPos, currentArmOrient);
         hand_pix = projectToVisualSpace(currentArmPos);
+
+        cv::circle(proj_image, cv::Point(hand_pix[0], hand_pix[1]), 5, cv::Scalar(0, 0, 255), -1, 8);
+
+        cv::imshow("proj_image", proj_image);
+        cv::waitKey(1);
+
+        proj_image = 0;
 
 //            std::cout << "u_hand:" << hand_pix[0] << ", v_hand:" << hand_pix[1] << std::endl;
 
@@ -468,7 +535,7 @@ class ControllerModule: public yarp::os::RFModule, public yarp::os::Thread
 //
 //        hand_pix_port.write();
 //
-//        double t_start = yarp::os::Time::now();
+        static double t_start = yarp::os::Time::now();
 //        static double t0 = yarp::os::Time::now();
 //
 ////        std::cout<<"u: "<<u<<", v: "<<v<<", label:"<<label<<std::endl;
@@ -547,14 +614,18 @@ class ControllerModule: public yarp::os::RFModule, public yarp::os::Thread
         yarp::sig::Vector x_actual, o_actual;
         arm->getPose(x_actual, o_actual);
 
-        yarp::os::Bottle &ypos_bottle = yposPort.prepare();
-        ypos_bottle.clear();
-        ypos_bottle.addDouble(x_actual[1]);
-        ypos_bottle.addDouble(puck_rf[1]);
-//        ypos_bottle.addDouble(u);
-//        ypos_bottle.addDouble(puck_velocity);
-        ypos_bottle.addDouble(mobility_condition);
-        yposPort.write();
+//        yInfo()<<x_actual[1]<<" "<<yarp::os::Time::now()-prev_t;
+
+        prev_t=yarp::os::Time::now();
+
+//        yarp::os::Bottle &ypos_bottle = yposPort.prepare();
+//        ypos_bottle.clear();
+//        ypos_bottle.addDouble(x_actual[1]);
+//        ypos_bottle.addDouble(puck_rf[1]);
+////        ypos_bottle.addDouble(u);
+////        ypos_bottle.addDouble(puck_velocity);
+//        ypos_bottle.addDouble(mobility_condition);
+//        yposPort.write();
 
         if(abs(x_actual[1]-target)<0.02){
             if(target==y_max)
@@ -563,34 +634,44 @@ class ControllerModule: public yarp::os::RFModule, public yarp::os::Thread
                 target = y_max;
         }
 
+        yarp::sig::Vector q_gaze;
+        gaze->getJointsDesired(q_gaze);
+
+        yarp::sig::Vector xdhat, odhat, q_arm;
+        arm->getDesired(xdhat, odhat, q_arm);
+
         gaze->getRightEyePose(eye_pos, eye_orient);
         gaze->getHeadPose(head_pos, head_orient);
 
-        yarp::os::Bottle &eye_bottle = eyePort.prepare();
-        eye_bottle.clear();
-        eye_bottle.addDouble(eye_pos[0]);
-        eye_bottle.addDouble(eye_pos[1]);
-        eye_bottle.addDouble(eye_pos[2]);
-        eye_bottle.addDouble(eye_orient[0]);
-        eye_bottle.addDouble(eye_orient[1]);
-        eye_bottle.addDouble(eye_orient[2]);
-        eye_bottle.addDouble(eye_orient[3]);
-        eye_bottle.addDouble(head_pos[0]);
-        eye_bottle.addDouble(head_pos[1]);
-        eye_bottle.addDouble(head_pos[2]);
-        eye_bottle.addDouble(head_orient[0]);
-        eye_bottle.addDouble(head_orient[1]);
-        eye_bottle.addDouble(head_orient[2]);
-        eye_bottle.addDouble(head_orient[3]);
-        eyePort.write();
+//        yarp::os::Bottle &eye_bottle = eyePort.prepare();
+//        eye_bottle.clear();
+//        eye_bottle.addDouble(q_arm[0]);
+//        eye_bottle.addDouble(q_arm[1]);
+//        eye_bottle.addDouble(q_arm[2]);
+//        eye_bottle.addDouble(q_gaze[0]);
+//        eye_bottle.addDouble(q_gaze[1]);
+//        eye_bottle.addDouble(q_gaze[2]);
+//        eye_bottle.addDouble(q_gaze[3]);
+//        eye_bottle.addDouble(q_gaze[4]);
+//        eye_bottle.addDouble(q_gaze[5]);
+//        eyePort.write();
 
 //        std::cout<<"min and max"<<y_min<<", "<<y_max<<std::endl;
 //
 //        std::cout<<"diff: "<<abs(x_actual[1]-target)<<std::endl;
 
-//        myFile1 << yarp::os::Time::now() - t_start << std::endl;
+//        yInfo()<<q_gaze[2]-q_arm[2];
+//        yInfo()<<q_gaze[2]-q_arm[0];
+//        std::cout<<std::endl;
+
+//        yInfo()<<q_gaze[0]<<" "<<q_gaze[1]<<" "<<q_gaze[2]<<" "<<q_arm[0]<<" "<<q_arm[1]<<" "<<q_arm[2]<<" "<<q_arm[3]<<" "<<q_arm[4]<<" "<<q_arm[5]<<" "<<q_arm[6]<<" "<<q_arm[7]<<" "<<q_arm[8]<<" "<<q_arm[9];
+        //myFile1<<q_arm[0]<<" "<<q_arm[1]<<" "<<q_arm[2]<<" "<<q_gaze[0]<<" "<<q_gaze[1]<<" "<<q_gaze[2]<<" "<<q_gaze[3]<<" "<<q_gaze[4]<<" "<<q_gaze[5];
+
+//        myFile1 << yarp::os::Time::now() - t_start << " "<< x_actual[0]<< " " << x_actual[1] << " "<<x_actual[2]<<" "<<q_gaze[0]<<" "<<q_gaze[1]<<" "<<q_gaze[2]<<" "<<q_arm[0]<<" "<<q_arm[1]<<" "<<q_arm[2]<<" "<<eye_pos[0]<<" "<< eye_pos[1]<<" "<<eye_pos[2]<<" "<<eye_orient[0]<<" "<<eye_orient[1]<<" "<<eye_orient[2]<<" "<<eye_orient[3]<< std::endl;
 //        myFile2 << x_actual[1] << " " << puck_rf[1] << " "<< u<< " "<<yarp::os::Time::now() - t0<<std::endl;
 //        myFile3 << projection_check[1]<<" "<<u<<" "<<pix_reprojected[1]<<" "<<v<<" "<<pix_reprojected[0]<<" "<<yarp::os::Time::now() - t0<< std::endl;
+
+//        yInfo()<<yarp::os::Time::now() - t_start;
 
         return true;
 
