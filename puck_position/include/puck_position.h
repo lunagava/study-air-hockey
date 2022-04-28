@@ -25,6 +25,7 @@
 #include <yarp/sig/all.h>
 
 #include <event-driven/core.h>
+#include <event-driven/algs.h>
 
 #include <iostream>
 #include <mutex>
@@ -283,9 +284,9 @@ private:
         cv::rectangle(H, zoom, cv::Scalar(255, 0, 255));
         cv::rectangle(H, zoom2, cv::Scalar(255, 0, 255));
 
-        cv::imshow("ROI TRACK", H);
-        cv::imshow("ZOOM", result_final(zoom));
-        cv::imshow("GAUSSIAN MUL", result_final_filtered);
+//        cv::imshow("ROI TRACK", H);
+//        cv::imshow("ZOOM", result_final(zoom));
+//        cv::imshow("GAUSSIAN MUL", result_final_filtered);
 
 //        cv::waitKey(1);
 
@@ -592,9 +593,10 @@ private:
 
     bool pause, first_it, success;
     int n_trial, n_exp;
-    std::mutex m, m2;
+    std::mutex m, m2, m_pim;
     int w, h;
-    hpecore::surface EROS_vis;
+    ev::EROS EROS_vis;
+    ev::PIM pim_vis;
     double start_time_latency;
     int save,seq;
 

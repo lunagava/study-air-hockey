@@ -43,8 +43,9 @@ bool puckPosModule::configure(yarp::os::ResourceFinder& rf) {
         return false;
     }
 
-    EROS_vis.init(w, h, 7, 0.1);
-//    EROS_vis.init(w, h, 5, 0.3);
+//    EROS_vis.init(w, h, 7, 0.1);
+    EROS_vis.init(w, h, 7, 0.3);
+    pim_vis.init(w, h, 0, 1.0);
 
     yarp::os::Network::connect("/atis3/AE:o", getName("/AE:i"), "fast_tcp");
 
@@ -63,17 +64,17 @@ bool puckPosModule::configure(yarp::os::ResourceFinder& rf) {
 //    cv::namedWindow("DETECT_HEAT_MAP", cv::WINDOW_NORMAL);
 //    cv::moveWindow("DETECT_HEAT_MAP", 500,500);
 //
-    cv::namedWindow("ROI TRACK", cv::WINDOW_NORMAL);
-    cv::moveWindow("ROI TRACK", 600,600);
+//    cv::namedWindow("ROI TRACK", cv::WINDOW_NORMAL);
+//    cv::moveWindow("ROI TRACK", 600,600);
+//
+//    cv::namedWindow("ZOOM", cv::WINDOW_NORMAL);
+//    cv::moveWindow("ZOOM", 800,1200);
+//
+//    cv::namedWindow("GAUSSIAN MUL", cv::WINDOW_NORMAL);
+//    cv::moveWindow("GAUSSIAN MUL", 600,1200);
 
-    cv::namedWindow("ZOOM", cv::WINDOW_NORMAL);
-    cv::moveWindow("ZOOM", 800,1200);
-
-    cv::namedWindow("GAUSSIAN MUL", cv::WINDOW_NORMAL);
-    cv::moveWindow("GAUSSIAN MUL", 600,1200);
-
-    cv::namedWindow("FINAL TRACK", cv::WINDOW_AUTOSIZE);
-    cv::moveWindow("FINAL TRACK", 0,0);
+//    cv::namedWindow("FINAL TRACK", cv::WINDOW_AUTOSIZE);
+//    cv::moveWindow("FINAL TRACK", 0,0);
 
 //    cv::namedWindow("GAUSSIAN MUL", cv::WINDOW_NORMAL);
 //    cv::moveWindow("GAUSSIAN MUL", 1400,1400);
@@ -102,14 +103,18 @@ void puckPosModule::run() {
         input_port.readChunkN(1);
         if(input_port.isStopping())
             break;
+        m_pim.lock();
         for(auto a = input_port.begin(); a != input_port.end(); a++) {
-            EROS_vis.EROSupdate((*a).x, (*a).y);
+            //EROS_vis.update((*a).x, (*a).y,(*a).ts, (*a).p);
 
-            yarp::sig::PixelBgr &ePix = puckMap.pixel((*a).x,(*a).y);
-            ePix.r = ePix.b = ePix.g = 255;
+            pim_vis.update((*a).x, (*a).y, (*a).ts, (*a).p);
 
-            eros_thread.setCurrentTime(a.packetTime());
+            //yarp::sig::PixelBgr &ePix = puckMap.pixel((*a).x,(*a).y);
+            //ePix.r = ePix.b = ePix.g = 255;
+
+           // eros_thread.setCurrentTime(a.packetTime());
         }
+        m_pim.unlock();
         eros_thread.setLatencyTime(input_port.getUnprocessedDelay());
 
 
@@ -136,6 +141,23 @@ bool puckPosModule::updateModule() {
     cv::Mat eros_surface = EROS_vis.getSurface();
     cv::cvtColor(eros_surface, eros_bgr, cv::COLOR_GRAY2BGR);
 
+    static cv::Mat floater(480, 640, CV_32F);
+    m_pim.lock();
+    pim_vis.temporalDecay(Time::now());
+    pim_vis.spatialDecay(3);
+    pim_vis.getSurface().copyTo(floater);
+    m_pim.unlock();
+
+//    cv::Mat pim_surf_normalized, pim_surf_gray, pim_filtered;
+//    cv::Mat pim_surface = pim_vis.getSurface();
+//    cv::normalize(pim_surface, pim_surf_normalized, 255, 0, cv::NORM_MINMAX);
+//    pim_surf_normalized.convertTo(pim_surf_gray, CV_8U);
+//    for (int i=0;i<pim_surface.cols; i++) {
+//        for (int j = 0; j < pim_surface.rows; j++) {
+//            std::cout<<pim_surface.at<float>(j,i)<<" ";
+//        }
+//        std::cout<<std::endl;
+//    }
     cv::Point puck_position = eros_thread.getState();
     cv::Rect puck_roi = eros_thread.getTrackROI();
     cv::Point  puck_init = eros_thread.getInitPos();
@@ -149,8 +171,19 @@ bool puckPosModule::updateModule() {
 //        cv::rectangle(eros_bgr, cv::Point(60, 150), cv::Point(560, 220), cv::Scalar(255,127,0), 3);
 
     cv::GaussianBlur(eros_bgr, eros_filtered, cv::Size(5, 5), 0);
+//    cv::GaussianBlur(pim_surf_gray, pim_filtered, cv::Size(5, 5), 0);
 
-    cv::imshow("FINAL TRACK", eros_filtered);
+    double min_val, max_val;
+    cv::minMaxLoc(floater, &min_val, &max_val);
+    max_val = std::max(max_val, fabs(min_val));
+    floater /= (2*max_val);
+    floater += 0.5;
+
+    // cv::normalize(floater, floater, 0, 1, cv::NORM_MINMAX);
+    cv::namedWindow("Representation Visualisation", cv::WINDOW_NORMAL);
+    cv::imshow("Representation Visualisation", 1.0 - floater);
+
+//    cv::imshow("FINAL TRACK", pim_filtered);
 //    cv::waitKey(1);
 
     key = cv::waitKey(1);
@@ -265,50 +298,50 @@ void asynch_thread::run() {
 
         // --- DETECTION PHASE ----
         m2->lock();
-        if (!getStatus())
-        {
-            if(detector.detect(eros_filtered)){
-                setStatus(1);
-                tracker.resetKalman(detector.getDetection(), detector.getSize());
-                if(first_detection==true){
-                    detection_time = getCurrentTime();
-                    yInfo()<<"x="<<detector.getDetection().x<<",y="<<detector.getDetection().y<<",ts="<<detection_time-getFirstTime();
-                    file<<detection_time-getFirstTime()<<" "<<detector.getDetection().x<<" "<<detector.getDetection().y<<" 0 0 0 0"<<endl;
-                    first_detection=false;
-                }
-//                yInfo()<<"first detected = ("<<detector.getDetection().x<<","<<detector.getDetection().y<<")";
-            }
-        }
-        // ---- TRACKING PHASE ----
-        else{
-
-            // UPDATE RATE
-            double dT = yarp::os::Time::now() - tic;
-            tic += dT;
-            double eros_time_before= getCurrentTime();
-//            yInfo() << "Running at a cool " << 1.0 / dT << "Hz";
-            puck_pos = tracker.track(eros_filtered, dT);
-            double eros_time_after = getCurrentTime();
-
-            double eros_diff_time = eros_time_after-eros_time_before;
-//            yInfo()<<latency;
-
-//            yInfo()<<getLatencyTime();
-
-            file<<(getCurrentTime()-getFirstTime())<<" "<<puck_pos.x<<" "<<puck_pos.y<<" "<<getLatencyTime()+eros_diff_time<<" "<<1.0 / dT<<" "<<tracker.get_convROI().width<<" "<<tracker.get_convROI().height<<endl;
-
-//            if (puck_pos.x<=3){
-//                setStatus(0);
-//            }
-
+//        if (!getStatus())
+//        {
 //            if(detector.detect(eros_filtered)){
-//                setStatus(1);
+////                setStatus(1);
 //                tracker.resetKalman(detector.getDetection(), detector.getSize());
-//                detection_time = yarp::os::Time::now();
+//                if(first_detection==true){
+//                    detection_time = getCurrentTime();
+//                    yInfo()<<"x="<<detector.getDetection().x<<",y="<<detector.getDetection().y<<",ts="<<detection_time-getFirstTime();
+//                    file<<detection_time-getFirstTime()<<" "<<detector.getDetection().x<<" "<<detector.getDetection().y<<" 0 0 0 0"<<endl;
+//                    first_detection=false;
+//                }
 ////                yInfo()<<"first detected = ("<<detector.getDetection().x<<","<<detector.getDetection().y<<")";
 //            }
-
-        }
+//        }
+//        // ---- TRACKING PHASE ----
+//        else{
+//
+//            // UPDATE RATE
+//            double dT = yarp::os::Time::now() - tic;
+//            tic += dT;
+//            double eros_time_before= getCurrentTime();
+////            yInfo() << "Running at a cool " << 1.0 / dT << "Hz";
+//            puck_pos = tracker.track(eros_filtered, dT);
+//            double eros_time_after = getCurrentTime();
+//
+//            double eros_diff_time = eros_time_after-eros_time_before;
+////            yInfo()<<latency;
+//
+////            yInfo()<<getLatencyTime();
+//
+//            file<<(getCurrentTime()-getFirstTime())<<" "<<puck_pos.x<<" "<<puck_pos.y<<" "<<getLatencyTime()+eros_diff_time<<" "<<1.0 / dT<<" "<<tracker.get_convROI().width<<" "<<tracker.get_convROI().height<<endl;
+//
+////            if (puck_pos.x<=3){
+////                setStatus(0);
+////            }
+//
+////            if(detector.detect(eros_filtered)){
+////                setStatus(1);
+////                tracker.resetKalman(detector.getDetection(), detector.getSize());
+////                detection_time = yarp::os::Time::now();
+//////                yInfo()<<"first detected = ("<<detector.getDetection().x<<","<<detector.getDetection().y<<")";
+////            }
+//
+//        }
         m2->unlock();
     }
 
