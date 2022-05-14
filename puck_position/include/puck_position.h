@@ -24,7 +24,16 @@
 #include <yarp/math/Math.h>
 #include <yarp/sig/all.h>
 
+#include <yarp/dev/CartesianControl.h>
+#include <yarp/dev/IPositionControl.h>
+#include <yarp/dev/GazeControl.h>
+#include <yarp/dev/PolyDriver.h>
+#include <yarp/dev/IControlMode.h>
+#include <yarp/dev/IEncoders.h>
+#include <yarp/dev/IVelocityControl.h>
+
 #include <event-driven/core.h>
+#include <event-driven/algs.h>
 
 #include <iostream>
 #include <mutex>
@@ -42,13 +51,184 @@
 #include <opencv2/calib3d.hpp>
 #include <opencv2/calib3d/calib3d_c.h>
 
-#include "hpe-core/representations.h"
+//#include "hpe-core/representations.h"
 
 using namespace ev;
 using namespace cv;
 using namespace yarp::os;
 using namespace yarp::sig;
 using namespace std;
+
+class PID
+{
+    double Kp,Ki;
+    double integral;
+
+public:
+    // constructor
+    PID() : Kp(0.0), Ki(0.0), integral(0.0) { }
+
+    // helper function to set up sample time and gains
+    void set(const double Kp, const double Ki)
+    {
+        this->Kp=Kp;
+        this->Ki=Ki;
+    }
+
+    // compute the control command
+    double command(const double reference, const double feedback, const double Ts)
+    {
+        // the actual error between reference and feedback
+        double error=reference-feedback;
+
+        // accumulate the error
+        integral+=error*Ts;
+
+        // compute the PID output
+        return (Kp*error+Ki*integral);
+    }
+
+    void reset()
+    {
+        integral = 0;
+    }
+};
+
+class eyeControlPID
+{
+
+protected:
+
+    yarp::dev::PolyDriver         driver;
+    yarp::dev::IEncoders         *ienc;
+    yarp::dev::IControlMode *imod;
+    yarp::dev::IVelocityControl *ivel;
+    yarp::dev::IPositionControl *ipos;
+
+    int nAxes;
+    std::vector<PID*> controllers;
+    std::vector<double> velocity;
+    std::vector<double> encs;
+
+    int u_fixation;
+    int v_fixation;
+
+public:
+
+    eyeControlPID() : nAxes(6), u_fixation(0), v_fixation(0) {}
+
+    bool initControl(int height, int width)
+    {
+
+        yarp::os::Property option;
+        option.put("device","remote_controlboard");
+        option.put("remote","/icub/head");
+        option.put("local","/controller");
+
+        if (!driver.open(option))
+        {
+            yError()<<"Unable to open the device driver";
+            return false;
+        }
+
+        // open the views
+
+        if(!driver.view(ienc)) {
+            yError() << "Driver does not implement encoder mode";
+            return false;
+        }
+        if(!driver.view(imod)) {
+            yError() << "Driver does not implement control mode";
+            return false;
+        }
+        if(!driver.view(ivel)) {
+            yError() << "Driver does not implement velocity mode";
+            return false;
+        }
+        if(!driver.view(ipos)) {
+            yError() << "Driver does not implement velocity mode";
+            return false;
+        }
+
+        // retrieve number of axes
+        int readAxes;
+        ienc->getAxes(&readAxes);
+        if(readAxes != nAxes) {
+            yError() << "Incorrect number of axes" << readAxes << nAxes;
+            return false;
+        }
+
+        velocity.resize(nAxes, 0.0);
+        encs.resize(nAxes);
+        controllers.resize(nAxes);
+        for(int i = 0; i < nAxes; i++)
+            controllers[i] = new PID;
+
+        // set up our controllers
+        controllers[0]->set(0.5, 0.0); //neck pitch
+        controllers[1]->set(0.0, 0.0); //neck roll
+        controllers[2]->set(0.5, 0.0); //neck yaw
+
+        u_fixation = width / 2;
+        v_fixation = height / 2;
+
+        //set velocity control mode
+        return setVelocityControl();
+
+    }
+
+    bool setVelocityControl()
+    {
+
+        imod->setControlMode(0, VOCAB_CM_VELOCITY);
+        imod->setControlMode(1, VOCAB_CM_VELOCITY);
+        imod->setControlMode(2, VOCAB_CM_VELOCITY);
+        imod->setControlMode(3, VOCAB_CM_VELOCITY);
+        imod->setControlMode(4, VOCAB_CM_VELOCITY);
+        imod->setControlMode(5, VOCAB_CM_VELOCITY);
+
+        return true;
+    }
+
+    void controlMono(int u, int v, double dt)
+    {
+//        ienc->getEncoders(encs.data());
+
+//        yInfo()<<encs[0]<<encs[1]<<encs[2]<<encs[3]<<encs[4]<<encs[5];
+
+        double neck_tilt=controllers[0]->command(v_fixation,v, dt);  // neck pitch
+        double neck_pan=controllers[2]->command(u_fixation,u, dt); // neck yaw
+
+        // send commands to the robot head
+        velocity[0]=1000;          // neck pitch
+        velocity[1]=0.0;                // neck roll
+        velocity[2]=1000;           // neck yaw
+        velocity[3]=0.0;          // neck pitch
+        velocity[4]=0.0;                // neck roll
+        velocity[5]=0.0;           // neck yaw
+
+//        yInfo()<<"vel: "<<velocity[0]<<velocity[2];
+        //ivel->velocityMove(0, neck_tilt);
+        //ivel->velocityMove(2, neck_pan);
+        ivel->velocityMove(velocity.data());
+
+        double vel_tilt, vel_pan;
+        ivel->getRefVelocity(0,&vel_tilt);
+        ivel->getRefVelocity(2,&vel_pan);
+        yInfo()<<"current vel"<<vel_tilt<<vel_pan;
+    }
+
+    void controlReset()
+    {
+        for(int i = 0; i < nAxes; i++) {
+            controllers[i]->reset();
+            velocity[i] = 0;
+        }
+        ivel->velocityMove(velocity.data());
+    }
+
+};
+
 
 // class detection
 class detection {
@@ -100,6 +280,8 @@ public:
         // create filter
 
         filter = createEllipse(filter_width);
+
+//        yInfo()<<filter.rows<<filter.cols;
 
 //        double fw2 = (double)filter_width/2.0;
 //        filter = cv::Mat(filter_width, filter_width, CV_32F);
@@ -191,7 +373,7 @@ private:
     cv::Rect roi_full;
     map< pair<int, int>, cv::Mat> filter_set;
     int filter_bank_min, filter_bank_max;
-    cv::Point2d puck_corr, puck_meas;
+    cv::Point2d puck_corr, puck_meas{cv::Point(320,240)};
     cv::Point  prev_peak;
     typedef struct{cv::Point p; double s;} score_point;
     score_point best;
@@ -283,9 +465,9 @@ private:
         cv::rectangle(H, zoom, cv::Scalar(255, 0, 255));
         cv::rectangle(H, zoom2, cv::Scalar(255, 0, 255));
 
-        cv::imshow("ROI TRACK", H);
-        cv::imshow("ZOOM", result_final(zoom));
-        cv::imshow("GAUSSIAN MUL", result_final_filtered);
+//        cv::imshow("ROI TRACK", H);
+//        cv::imshow("ZOOM", result_final(zoom));
+//        cv::imshow("GAUSSIAN MUL", result_final_filtered);
 
 //        cv::waitKey(1);
 
@@ -295,6 +477,8 @@ private:
     cv::Point multi_conv(cv::Mat eros, int width, int height){
 
 //        yInfo()<<width<<" "<<height;
+        width = 41;
+        height = 41;
         auto p = convolution(eros, filter_set[make_pair(width,height)], puck_meas.x, puck_meas.y);
 
 //        for (int i=0;i<filter_set[make_pair(width,height)].rows; i++){
@@ -594,15 +778,19 @@ private:
     int n_trial, n_exp;
     std::mutex m, m2;
     int w, h;
-    hpecore::surface EROS_vis;
+    ev::EROS EROS_vis;
     double start_time_latency;
     int save,seq;
+    cv::Point puck_position;
 
     ev::window<ev::AE> input_port;
     yarp::os::BufferedPort <yarp::sig::ImageOf<yarp::sig::PixelBgr> > image_out;
     yarp::sig::ImageOf<yarp::sig::PixelBgr> puckMap;
 
     asynch_thread eros_thread;
+
+    eyeControlPID velocityController;
+
 
 protected:
 

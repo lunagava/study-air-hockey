@@ -35,6 +35,9 @@ bool puckPosModule::configure(yarp::os::ResourceFinder& rf) {
     // module name
     setName((rf.check("name", Value("/puck_position")).asString()).c_str());
 
+    if(!velocityController.initControl(h, w))
+        return false;
+
     if (!input_port.open(getName() + "/AE:i"))
         return false;
 
@@ -49,7 +52,8 @@ bool puckPosModule::configure(yarp::os::ResourceFinder& rf) {
     yarp::os::Network::connect("/atis3/AE:o", getName("/AE:i"), "fast_tcp");
 
     cv::Mat temp = EROS_vis.getSurface();
-    eros_thread.initialise(temp, 19, cv::Rect(60, 150, 500, 80), 3000, &m2, n_trial, n_exp);
+//    yInfo()<<temp.rows<<temp.cols;
+    eros_thread.initialise(temp, 31, cv::Rect(60, 150, 500, 80), 3000, &m2, n_trial, n_exp);
     eros_thread.start();
 
 //    pause = false;
@@ -63,14 +67,14 @@ bool puckPosModule::configure(yarp::os::ResourceFinder& rf) {
 //    cv::namedWindow("DETECT_HEAT_MAP", cv::WINDOW_NORMAL);
 //    cv::moveWindow("DETECT_HEAT_MAP", 500,500);
 //
-    cv::namedWindow("ROI TRACK", cv::WINDOW_NORMAL);
-    cv::moveWindow("ROI TRACK", 600,600);
-
-    cv::namedWindow("ZOOM", cv::WINDOW_NORMAL);
-    cv::moveWindow("ZOOM", 800,1200);
-
-    cv::namedWindow("GAUSSIAN MUL", cv::WINDOW_NORMAL);
-    cv::moveWindow("GAUSSIAN MUL", 600,1200);
+//    cv::namedWindow("ROI TRACK", cv::WINDOW_NORMAL);
+//    cv::moveWindow("ROI TRACK", 600,600);
+//
+//    cv::namedWindow("ZOOM", cv::WINDOW_NORMAL);
+//    cv::moveWindow("ZOOM", 800,1200);
+//
+//    cv::namedWindow("GAUSSIAN MUL", cv::WINDOW_NORMAL);
+//    cv::moveWindow("GAUSSIAN MUL", 600,1200);
 
     cv::namedWindow("FINAL TRACK", cv::WINDOW_AUTOSIZE);
     cv::moveWindow("FINAL TRACK", 0,0);
@@ -85,6 +89,9 @@ bool puckPosModule::configure(yarp::os::ResourceFinder& rf) {
 //    cv::moveWindow("init filter", 320,320);
 
     yarp::os::Network::connect(getName("/image:o"), "/puckView", "fast_tcp");
+
+    puck_position.x = w/2;
+    puck_position.y = h/2;
 
     return Thread::start();
 }
@@ -103,7 +110,7 @@ void puckPosModule::run() {
         if(input_port.isStopping())
             break;
         for(auto a = input_port.begin(); a != input_port.end(); a++) {
-            EROS_vis.EROSupdate((*a).x, (*a).y);
+            EROS_vis.update((*a).x, (*a).y);
 
             yarp::sig::PixelBgr &ePix = puckMap.pixel((*a).x,(*a).y);
             ePix.r = ePix.b = ePix.g = 255;
@@ -123,7 +130,7 @@ void puckPosModule::run() {
 }
 
 double puckPosModule::getPeriod() {
-    return 0.01;
+    return 0.005;
 }
 
 bool puckPosModule::updateModule() {
@@ -136,12 +143,12 @@ bool puckPosModule::updateModule() {
     cv::Mat eros_surface = EROS_vis.getSurface();
     cv::cvtColor(eros_surface, eros_bgr, cv::COLOR_GRAY2BGR);
 
-    cv::Point puck_position = eros_thread.getState();
-    cv::Rect puck_roi = eros_thread.getTrackROI();
-    cv::Point  puck_init = eros_thread.getInitPos();
+    puck_position = eros_thread.getState();
+//    cv::Rect puck_roi = eros_thread.getTrackROI();
+//    cv::Point  puck_init = eros_thread.getInitPos();
 
 //    yInfo()<<puck_position.x<<" "<<puck_position.y;
-//    cv::circle(eros_bgr, puck_position,5, cv::Scalar(180,119,31), cv::FILLED);
+    cv::circle(eros_bgr, puck_position,5, cv::Scalar(0,0,255), cv::FILLED);
 //    cv::rectangle(eros_bgr, cv::Point(puck_roi.x, puck_roi.y), cv::Point(puck_roi.x+puck_roi.width, puck_roi.y+puck_roi.height), cv::Scalar(180,119,31), 3);
 //    if(eros_thread.getStatus())
 //        cv::circle(eros_bgr, puck_init,5, cv::Scalar(255,0,0), cv::FILLED);
@@ -170,6 +177,12 @@ bool puckPosModule::updateModule() {
         eros_thread.setStatus(0);
     }
 
+    static double trecord = yarp::os::Time::now();
+    double dt = yarp::os::Time::now() - trecord;
+    trecord += dt;
+
+    velocityController.controlMono(puck_position.x, puck_position.y, dt);
+
 //    yInfo()<<"UPDATE MODULE";
 
     return Thread::isRunning();
@@ -181,6 +194,7 @@ bool puckPosModule::interruptModule() {
 }
 
 void puckPosModule::onStop() {
+    velocityController.controlReset();
     eros_thread.stop();
     input_port.stop();
 }
@@ -193,7 +207,7 @@ void asynch_thread::initialise(cv::Mat &eros, int init_filter_width, cv::Rect ro
     detector.initialize(init_filter_width, roi, thresh); // create and visualize filter for detection phase
     tracker.initKalmanFilter();
 
-    file_closed=true;
+//    file_closed=true;
 
 //    first_instant = yarp::os::Time::now();
 
@@ -263,6 +277,8 @@ void asynch_thread::run() {
         eros.copyTo(temp);
         cv::GaussianBlur(temp, eros_filtered, cv::Size(5, 5), 0);
 
+//        yInfo()<<temp.rows<<temp.cols;
+//        yInfo()<<eros_filtered.rows<<eros_filtered.cols;
         // --- DETECTION PHASE ----
         m2->lock();
         if (!getStatus())
