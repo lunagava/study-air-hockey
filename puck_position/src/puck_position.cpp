@@ -35,7 +35,10 @@ bool puckPosModule::configure(yarp::os::ResourceFinder& rf) {
     // module name
     setName((rf.check("name", Value("/puck_position")).asString()).c_str());
 
-    if(!velocityController.initControl(h, w))
+    if(!velocityController.initVelControl(h, w))
+        return false;
+
+    if(!velocityController.initPosControl())
         return false;
 
     if (!input_port.open(getName() + "/AE:i"))
@@ -92,6 +95,8 @@ bool puckPosModule::configure(yarp::os::ResourceFinder& rf) {
 
     puck_position.x = w/2;
     puck_position.y = h/2;
+
+    first_timer = true;
 
     return Thread::start();
 }
@@ -181,15 +186,33 @@ bool puckPosModule::updateModule() {
     double dt = yarp::os::Time::now() - trecord;
     trecord += dt;
 
-    velocityController.controlMono(puck_position.x, puck_position.y, dt);
+    double errorTh = 5; // pixels
+    double samePosTime = 2; //s
 
-//    yInfo()<<"UPDATE MODULE";
+
+    velocityController.closeToLimit(0);
+    velocityController.closeToLimit(2);
+
+    if (velocityController.computeErrorDistance(puck_position.x, puck_position.y) < errorTh){
+        //start timer
+        double t0;
+        if (first_timer){
+            t0 = yarp::os::Time::now();
+            first_timer = false;
+        }
+        double elapsed_timer = yarp::os::Time::now() - first_timer;
+        if(elapsed_timer > samePosTime)
+            velocityController.resetRobotHome();
+    }
+    else{
+        velocityController.controlMono(puck_position.x, puck_position.y, dt);
+    }
+    eros_thread.setPitch(velocityController.getJointPos(0));
 
     return Thread::isRunning();
 }
 
 bool puckPosModule::interruptModule() {
-    eros_thread.stop();
     return Thread::stop();
 }
 
@@ -250,6 +273,14 @@ void asynch_thread::setLatencyTime(double latency) {
 
 double asynch_thread::getLatencyTime(){
     return latTime;
+}
+
+void asynch_thread::setPitch(double pitch) {
+    this->neck_pitch=pitch;
+}
+
+double asynch_thread::getPitch(){
+    return neck_pitch;
 }
 
 cv::Point asynch_thread::getState(){
@@ -326,6 +357,8 @@ void asynch_thread::run() {
 
         }
         m2->unlock();
+
+        tracker.setPitch(getPitch());
     }
 
 }

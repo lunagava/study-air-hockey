@@ -26,6 +26,7 @@
 
 #include <yarp/dev/CartesianControl.h>
 #include <yarp/dev/IPositionControl.h>
+#include <yarp/dev/IControlLimits.h>
 #include <yarp/dev/GazeControl.h>
 #include <yarp/dev/PolyDriver.h>
 #include <yarp/dev/IControlMode.h>
@@ -99,11 +100,12 @@ class eyeControlPID
 
 protected:
 
-    yarp::dev::PolyDriver         driver;
+    yarp::dev::PolyDriver         vel_driver, pos_driver;
     yarp::dev::IEncoders         *ienc;
     yarp::dev::IControlMode *imod;
     yarp::dev::IVelocityControl *ivel;
     yarp::dev::IPositionControl *ipos;
+    yarp::dev::IControlLimits *ilim;
 
     int nAxes;
     std::vector<PID*> controllers;
@@ -117,35 +119,30 @@ public:
 
     eyeControlPID() : nAxes(6), u_fixation(0), v_fixation(0) {}
 
-    bool initControl(int height, int width)
+    bool initVelControl(int height, int width)
     {
-
         yarp::os::Property option;
         option.put("device","remote_controlboard");
         option.put("remote","/icub/head");
-        option.put("local","/controller");
+        option.put("local","/vel_controller");
 
-        if (!driver.open(option))
+        if (!vel_driver.open(option))
         {
-            yError()<<"Unable to open the device driver";
+            yError()<<"Unable to open the device vel_driver";
             return false;
         }
 
         // open the views
 
-        if(!driver.view(ienc)) {
+        if(!vel_driver.view(ienc)) {
             yError() << "Driver does not implement encoder mode";
             return false;
         }
-        if(!driver.view(imod)) {
+        if(!vel_driver.view(imod)) {
             yError() << "Driver does not implement control mode";
             return false;
         }
-        if(!driver.view(ivel)) {
-            yError() << "Driver does not implement velocity mode";
-            return false;
-        }
-        if(!driver.view(ipos)) {
+        if(!vel_driver.view(ivel)) {
             yError() << "Driver does not implement velocity mode";
             return false;
         }
@@ -165,9 +162,9 @@ public:
             controllers[i] = new PID;
 
         // set up our controllers
-        controllers[0]->set(0.5, 0.0); //neck pitch
+        controllers[0]->set(0.05, 0.0); //neck pitch
         controllers[1]->set(0.0, 0.0); //neck roll
-        controllers[2]->set(0.5, 0.0); //neck yaw
+        controllers[2]->set(0.05, 0.0); //neck yaw
 
         u_fixation = width / 2;
         v_fixation = height / 2;
@@ -177,45 +174,76 @@ public:
 
     }
 
+    bool initPosControl(){
+        yarp::os::Property option;
+        option.put("device", "remote_controlboard");
+        option.put("remote", "/icub/head");
+        option.put("local", "/pos_controller/");
+
+        pos_driver.open(option);
+        pos_driver.view(ipos);
+        pos_driver.view(imod);
+        pos_driver.view(ilim);
+    }
+
     bool setVelocityControl()
     {
+        int naxes;
+        ivel->getAxes(&naxes);
+        std::vector<int> modes(naxes, VOCAB_CM_VELOCITY);
 
-        imod->setControlMode(0, VOCAB_CM_VELOCITY);
-        imod->setControlMode(1, VOCAB_CM_VELOCITY);
-        imod->setControlMode(2, VOCAB_CM_VELOCITY);
-        imod->setControlMode(3, VOCAB_CM_VELOCITY);
-        imod->setControlMode(4, VOCAB_CM_VELOCITY);
-        imod->setControlMode(5, VOCAB_CM_VELOCITY);
+        imod->setControlModes(modes.data());
 
         return true;
     }
 
+    void resetRobotHome(){
+
+        int naxes;
+        ipos->getAxes(&naxes);
+        std::vector<int> modes(naxes, VOCAB_CM_POSITION);
+        std::vector<double> vels(naxes, 20.);
+        std::vector<double> accs(naxes, std::numeric_limits<double>::max());
+        std::vector<double> poss(naxes, 0.);
+
+        imod->setControlModes(modes.data());
+        ipos->setRefSpeeds(vels.data());
+        ipos->setRefAccelerations(accs.data());
+        ipos->positionMove(poss.data());
+
+        setVelocityControl();
+    }
+
     void controlMono(int u, int v, double dt)
     {
-//        ienc->getEncoders(encs.data());
-
-//        yInfo()<<encs[0]<<encs[1]<<encs[2]<<encs[3]<<encs[4]<<encs[5];
 
         double neck_tilt=controllers[0]->command(v_fixation,v, dt);  // neck pitch
         double neck_pan=controllers[2]->command(u_fixation,u, dt); // neck yaw
 
         // send commands to the robot head
-        velocity[0]=1000;          // neck pitch
+        velocity[0]=neck_tilt;          // neck pitch
         velocity[1]=0.0;                // neck roll
-        velocity[2]=1000;           // neck yaw
-        velocity[3]=0.0;          // neck pitch
-        velocity[4]=0.0;                // neck roll
-        velocity[5]=0.0;           // neck yaw
+        velocity[2]=neck_pan;           // neck yaw
+        velocity[3]=0.0;                // eyes tilt
+        velocity[4]=0.0;                // eyes vers
+        velocity[5]=0.0;                // eyes verg
 
 //        yInfo()<<"vel: "<<velocity[0]<<velocity[2];
         //ivel->velocityMove(0, neck_tilt);
         //ivel->velocityMove(2, neck_pan);
         ivel->velocityMove(velocity.data());
 
-        double vel_tilt, vel_pan;
-        ivel->getRefVelocity(0,&vel_tilt);
-        ivel->getRefVelocity(2,&vel_pan);
-        yInfo()<<"current vel"<<vel_tilt<<vel_pan;
+//        double vel_tilt, vel_pan;
+//        ivel->getRefVelocity(0,&vel_tilt);
+//        ivel->getRefVelocity(2,&vel_pan);
+//        yInfo()<<"current vel"<<vel_tilt<<vel_pan;
+    }
+
+    double computeErrorDistance(int u, int v){
+
+        double dist=sqrt((u-u_fixation)*(u-u_fixation)+(v-v_fixation)*(v-v_fixation));
+
+        return dist;
     }
 
     void controlReset()
@@ -226,6 +254,35 @@ public:
         }
         ivel->velocityMove(velocity.data());
     }
+
+    double getJointPos(int joint_number){
+        ienc->getEncoders(encs.data());
+        return encs[joint_number];
+    }
+
+    void getJointLimits(int joint_num, double* joint_min, double* joint_max){
+
+        double min, max;
+        ilim->getLimits(joint_num, &min, &max);
+
+        *joint_min = min;
+        *joint_max = max;
+    }
+
+    double closeToLimit(int joint_number){
+
+        double joint_pos_min, joint_pos_max;
+        getJointLimits(joint_number, &joint_pos_min, &joint_pos_max);
+
+        double error_min = getJointPos(joint_number) - joint_pos_max;
+        double error_max = getJointPos(joint_number) - joint_pos_min;
+
+        double smallTh = 3;
+
+        if (error_min< smallTh || error_max<smallTh)
+            resetRobotHome();
+    }
+
 
 };
 
@@ -380,6 +437,7 @@ private:
     double first_time;
     cv::Point starting_position;
     cv::Rect around_puck;
+    double neck_pitch;
 
     void createFilterBank(int min, int max){
         for(int i=min; i<=max; i+=2){
@@ -477,8 +535,8 @@ private:
     cv::Point multi_conv(cv::Mat eros, int width, int height){
 
 //        yInfo()<<width<<" "<<height;
-        width = 41;
-        height = 41;
+//        width = 51;
+//        height = 51;
         auto p = convolution(eros, filter_set[make_pair(width,height)], puck_meas.x, puck_meas.y);
 
 //        for (int i=0;i<filter_set[make_pair(width,height)].rows; i++){
@@ -550,7 +608,7 @@ public:
         roi_full = cv::Rect(0,0,640,480);
 
         filter_bank_min = 9;
-        filter_bank_max = 51;
+        filter_bank_max = 105;
         createFilterBank(filter_bank_min, filter_bank_max);
 
         first_time = yarp::os::Time::now();
@@ -700,6 +758,13 @@ public:
 //        double a0,a1,a2,b0,b1,b2;
 //        a0 = 17.715624038044254 , a1 = 0.0035291125887034315 , a2 = 0.09579542600737656;
 //        b0 = 6.313115087846054 , b1 = 0.0022264258939534796 , b2 = 0.09551609558936817;
+        // gaze following case
+//        double m_pitch_w, q_pitch_w, m_pitch_h, q_pitch_h;
+//        m_pitch_w = -1.28, q_pitch_w = 49.78;
+//        m_pitch_h = -1.32, q_pitch_h = 32.2;
+//        double width = m_pitch_w*neck_pitch+q_pitch_w;
+//        double height = m_pitch_h*neck_pitch+q_pitch_h;
+//        yInfo()<<neck_pitch;
         // moving scenario params
         double a0_moving,a1_moving,a2_moving,b0_moving,b1_moving,b2_moving;
         a0_moving = 12.201650881598578 , a1_moving = 0.009735421154783392 , a2_moving = 0.09872367924641742;
@@ -731,6 +796,10 @@ public:
         return roi;
     }
 
+    void setPitch(double pitch){
+        this->neck_pitch = pitch;
+    }
+
 };
 
 class asynch_thread:public Thread{
@@ -746,6 +815,7 @@ private:
     detection detector;
     ofstream file;
     double first_instant, startLat, startTime, currentTime, latTime;
+    double neck_pitch;
     int n_seq;
     bool file_closed;
 
@@ -766,6 +836,8 @@ public:
     double getCurrentTime();
     void setLatencyTime(double latency);
     double getLatencyTime();
+    void setPitch(double latency);
+    double getPitch();
     cv::Rect getTrackROI();
     cv::Point getInitPos();
 };
@@ -782,6 +854,7 @@ private:
     double start_time_latency;
     int save,seq;
     cv::Point puck_position;
+    bool first_timer;
 
     ev::window<ev::AE> input_port;
     yarp::os::BufferedPort <yarp::sig::ImageOf<yarp::sig::PixelBgr> > image_out;
