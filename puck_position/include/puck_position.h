@@ -162,9 +162,9 @@ public:
             controllers[i] = new PID;
 
         // set up our controllers
-        controllers[0]->set(0.05, 0.0); //neck pitch
+        controllers[0]->set(1.1, 0.0); //neck pitch
         controllers[1]->set(0.0, 0.0); //neck roll
-        controllers[2]->set(0.05, 0.0); //neck yaw
+        controllers[2]->set(1.1, 0.0); //neck yaw
 
         u_fixation = width / 2;
         v_fixation = height / 2;
@@ -178,12 +178,14 @@ public:
         yarp::os::Property option;
         option.put("device", "remote_controlboard");
         option.put("remote", "/icub/head");
-        option.put("local", "/pos_controller/");
+        option.put("local", "/pos_controller");
 
         pos_driver.open(option);
         pos_driver.view(ipos);
         pos_driver.view(imod);
         pos_driver.view(ilim);
+
+        return true;
     }
 
     bool setVelocityControl()
@@ -205,12 +207,20 @@ public:
         std::vector<double> vels(naxes, 20.);
         std::vector<double> accs(naxes, std::numeric_limits<double>::max());
         std::vector<double> poss(naxes, 0.);
+        poss[2]=-11.689;
+        poss[0]=5.977;
 
         imod->setControlModes(modes.data());
         ipos->setRefSpeeds(vels.data());
         ipos->setRefAccelerations(accs.data());
         ipos->positionMove(poss.data());
 
+        auto done = false;
+        while(!done) {
+            yarp::os::Time::delay(1.);
+            ipos->checkMotionDone(&done);
+        }
+        
         setVelocityControl();
     }
 
@@ -269,18 +279,29 @@ public:
         *joint_max = max;
     }
 
-    double closeToLimit(int joint_number){
+    void closeToLimit(int joint_number){
 
-        double joint_pos_min, joint_pos_max;
-        getJointLimits(joint_number, &joint_pos_min, &joint_pos_max);
+        double joint_pos_min, joint_pos_max, current_joint;
+        ienc->getEncoders(encs.data());
+        if (joint_number == 0){
+            joint_pos_min=-27; joint_pos_max=20;
+            current_joint = encs[0];
+        }
+        if (joint_number == 2){
+            joint_pos_min=-44; joint_pos_max=44;
+            current_joint = encs[2];
+        }
 
-        double error_min = getJointPos(joint_number) - joint_pos_max;
-        double error_max = getJointPos(joint_number) - joint_pos_min;
+//        getJointLimits(joint_number, &joint_pos_min, &joint_pos_max);
+
+        double error_min = current_joint - joint_pos_max;
+        double error_max = current_joint - joint_pos_min;
 
         double smallTh = 3;
 
-        if (error_min< smallTh || error_max<smallTh)
+        if (error_min < smallTh || error_max < smallTh)
             resetRobotHome();
+
     }
 
 
@@ -306,8 +327,8 @@ public:
 
     cv::Mat createEllipse(int puck_size){
 
-        width = 1.6*puck_size;
-        height = puck_size;
+        width = puck_size;
+        height = 0.7*puck_size;
         cv::Point2d origin((width)/2, (height)/2);
 
         cv::Mat ell_filter = cv::Mat::zeros(height, width, CV_32F);
@@ -317,12 +338,12 @@ public:
                 double dx = (pow(x,2) -2*origin.x*x + pow(origin.x,2))/pow((width)/2,2);
                 double dy = (pow(y,2) -2*origin.y*y + pow(origin.y,2))/pow((height)/2,2);
                 double value = dx+ dy;
-                if(value > 1)
-                    ell_filter.at<float>(y, x) = 0;
-                else if (value > 0.6 && value<=1)
-                    ell_filter.at<float>(y, x) = 1;
+                if(value > 0.8)
+                    ell_filter.at<float>(y, x) = -0.5;
+                else if (value > 0.4 && value<=0.8)
+                    ell_filter.at<float>(y, x) = 2;
                 else
-                    ell_filter.at<float>(y, x) = -1;
+                    ell_filter.at<float>(y, x) = -1.0;
 
             }
         }
@@ -374,7 +395,7 @@ public:
 
         eros(roi).convertTo(surface, CV_32F);
 
-        cv::filter2D(surface, result_convolution, -1, filter, cv::Point(-1, -1), 0, cv::BORDER_ISOLATED); // look at border
+        cv::filter2D(surface, result_convolution, -1, filter, cv::Point(-1, -1), 0, cv::BORDER_CONSTANT); // look at border
         cv::minMaxLoc(result_convolution, &min, &max, &min_loc, &max_loc);
 
 //        yarp::os::Bottle &peak_conv_bottle = peakPort.prepare();
@@ -384,17 +405,17 @@ public:
 
 //        cv::normalize(result_convolution, result_conv_normalized, 255, 0, cv::NORM_MINMAX);
 //        result_conv_normalized.convertTo(result_visualization, CV_8U);
-//
+////
 //        cv::cvtColor(result_visualization, result_color, cv::COLOR_GRAY2BGR);
 //        if (max>thresh)
 //            cv::circle(result_color, max_loc, 5, cv::Scalar(255, 0, 0), cv::FILLED);
 //        else
 //            cv::circle(result_color, max_loc, 5, cv::Scalar(0, 0, 255), cv::FILLED);
-//
+
 //        cv::imshow("DETECT_MAP", eros(roi));
-//
+
 //        result_convolution.at<float>(0,0) = 4000;
-//        cv::normalize(result_convolution, heat_map, 0, 255, cv::NORM_MINMAX);
+//        cv::normalize(result_convolution, heat_map, 255, 0, cv::NORM_MINMAX);
 //        heat_map.convertTo(heat_map, CV_8U);
 //
 //        cv::applyColorMap(heat_map, result_final, cv::COLORMAP_JET);
@@ -496,15 +517,16 @@ private:
 //        yInfo()<<weighted_pos.x<<" "<<weighted_pos.y;
 //        yInfo()<<heat_map_filtered.cols<<" "<<heat_map_filtered.rows;
 
+        cv::minMaxLoc(heat_map_filtered, &min, &max, &lowest_peak, &highest_peak_filtered);
+//        yInfo()<<max;
         cv::normalize(heat_map_filtered, heat_map_filtered, 0, 255, cv::NORM_MINMAX);
+
         heat_map_filtered.convertTo(heat_map_filtered, CV_8U);
 
         cv::applyColorMap(heat_map, result_final, cv::COLORMAP_JET);
         cv::applyColorMap(heat_map_filtered, result_final_filtered, cv::COLORMAP_JET);
 
         hconcat(result_color, result_final, H);
-
-        cv::minMaxLoc(heat_map_filtered, &min, &max, &lowest_peak, &highest_peak_filtered);
 
         cv::Point new_peak = highest_peak + cv::Point(zoom.x, zoom.y);
         cv::Point new_peak_filtered = highest_peak_filtered + cv::Point(zoom.x, zoom.y);
@@ -523,7 +545,7 @@ private:
         cv::rectangle(H, zoom, cv::Scalar(255, 0, 255));
         cv::rectangle(H, zoom2, cv::Scalar(255, 0, 255));
 
-//        cv::imshow("ROI TRACK", H);
+        cv::imshow("ROI TRACK", H);
 //        cv::imshow("ZOOM", result_final(zoom));
 //        cv::imshow("GAUSSIAN MUL", result_final_filtered);
 
@@ -553,7 +575,7 @@ private:
 //        cv::cvtColor(vis_ellipse,color_ellipse, cv::COLOR_GRAY2BGR);
 //        cv::imshow("ell_filter", color_ellipse);
 
-//        cv::imshow("ell_filter",filter_set[make_pair(width,height)]);
+        cv::imshow("ell_filter",filter_set[make_pair(width,height)]);
 //        cv::waitKey(1);
 
         if(p.s > 0){
@@ -604,7 +626,7 @@ public:
 //        // Measurement Noise Covariance Matrix R
 //        cv::setIdentity(kf.measurementNoiseCov, cv::Scalar(1e-2));
 
-        factor = 3;
+        factor = 2;
         roi_full = cv::Rect(0,0,640,480);
 
         filter_bank_min = 9;
@@ -655,6 +677,8 @@ public:
 //        kf.statePost.at<float>(3) = 0;
 
         updateROI(starting_position, 29, 19);
+
+
 
         puck_meas = starting_position;
         roi = cv::Rect(starting_position.x-puck_size/2, starting_position.y-puck_size/2, puck_size*1.6, puck_size);
@@ -707,7 +731,7 @@ public:
                 else if (value > 0.4 && value<=0.8)
                     ell_filter.at<float>(y, x) = 3;
                 else
-                    ell_filter.at<float>(y, x) = -1.0;
+                    ell_filter.at<float>(y, x) = -3.0;
 
 //                std::cout<<ell_filter.at<float>(y,x)<<" ";
 
@@ -759,18 +783,18 @@ public:
 //        a0 = 17.715624038044254 , a1 = 0.0035291125887034315 , a2 = 0.09579542600737656;
 //        b0 = 6.313115087846054 , b1 = 0.0022264258939534796 , b2 = 0.09551609558936817;
         // gaze following case
-//        double m_pitch_w, q_pitch_w, m_pitch_h, q_pitch_h;
-//        m_pitch_w = -1.28, q_pitch_w = 49.78;
-//        m_pitch_h = -1.32, q_pitch_h = 32.2;
-//        double width = m_pitch_w*neck_pitch+q_pitch_w;
-//        double height = m_pitch_h*neck_pitch+q_pitch_h;
+        double m_pitch_w, q_pitch_w, m_pitch_h, q_pitch_h;
+        m_pitch_w = -1.28, q_pitch_w = 49.78;
+        m_pitch_h = -1.32, q_pitch_h = 32.2;
+        double width = m_pitch_w*neck_pitch+q_pitch_w;
+        double height = m_pitch_h*neck_pitch+q_pitch_h;
 //        yInfo()<<neck_pitch;
         // moving scenario params
-        double a0_moving,a1_moving,a2_moving,b0_moving,b1_moving,b2_moving;
-        a0_moving = 12.201650881598578 , a1_moving = 0.009735421154783392 , a2_moving = 0.09872367924641742;
-        b0_moving = 1.92477315662196 , b1_moving = 0.003209378102266541 , b2_moving = 0.09801072879753021;
-        double width = a0_moving+a1_moving*last_x+a2_moving*last_y;
-        double height = b0_moving+b1_moving*last_x+b2_moving*last_y;
+//        double a0_moving,a1_moving,a2_moving,b0_moving,b1_moving,b2_moving;
+//        a0_moving = 12.201650881598578 , a1_moving = 0.009735421154783392 , a2_moving = 0.09872367924641742;
+//        b0_moving = 1.92477315662196 , b1_moving = 0.003209378102266541 , b2_moving = 0.09801072879753021;
+//        double width = a0_moving+a1_moving*last_x+a2_moving*last_y;
+//        double height = b0_moving+b1_moving*last_x+b2_moving*last_y;
         height = 2 * floor(height/2) + 1;
         width = 2 * floor(width/2) + 1;
 
@@ -778,6 +802,8 @@ public:
             height = 9;
         if(width<9)
             width = 9;
+
+//        yInfo()<<"filter width"<<width<<", filter height"<<height<<"neck pitch"<<neck_pitch;
         puck_meas = multi_conv(eros, width, height);
 //        cv::Point2d puck_pred = KalmanPrediction(dT);
 //        puck_corr = KalmanCorrection(puck_meas);
@@ -818,15 +844,18 @@ private:
     double neck_pitch;
     int n_seq;
     bool file_closed;
+    eyeControlPID *vc;
 
 protected:
 
 
 public:
+    double eros_latency, computation_latency;
+
     asynch_thread(){}
 
     void run();
-    void initialise(cv::Mat &eros, int init_filter_width, cv::Rect roi, double thresh, std::mutex *m2, int n_trial, int n_exp);
+    void initialise(cv::Mat &eros, int init_filter_width, cv::Rect roi, double thresh, std::mutex *m2, int n_trial, int n_exp, eyeControlPID* vc);
     void setStatus(int tracking);
     int getStatus();
     cv::Point getState();
@@ -856,13 +885,13 @@ private:
     cv::Point puck_position;
     bool first_timer;
 
-    ev::window<ev::AE> input_port;
+//    ev::window<ev::AE> input_port;
+    ev::BufferedPort<AE> input_port;
     yarp::os::BufferedPort <yarp::sig::ImageOf<yarp::sig::PixelBgr> > image_out;
     yarp::sig::ImageOf<yarp::sig::PixelBgr> puckMap;
 
-    asynch_thread eros_thread;
-
     eyeControlPID velocityController;
+    asynch_thread dtrack_thread;
 
 
 protected:
