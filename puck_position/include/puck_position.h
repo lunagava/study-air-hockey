@@ -162,9 +162,9 @@ public:
             controllers[i] = new PID;
 
         // set up our controllers
-        controllers[0]->set(1.1, 0.0); //neck pitch
+        controllers[0]->set(1.5, 0.1); //neck pitch
         controllers[1]->set(0.0, 0.0); //neck roll
-        controllers[2]->set(1.1, 0.0); //neck yaw
+        controllers[2]->set(1.5, 0.1); //neck yaw
 
         u_fixation = width / 2;
         v_fixation = height / 2;
@@ -222,6 +222,28 @@ public:
         }
         
         setVelocityControl();
+    }
+
+    void scroll_yaw(){
+        int naxes;
+        ipos->getAxes(&naxes);
+        std::vector<int> modes(naxes, VOCAB_CM_POSITION);
+        std::vector<double> vels(naxes, 20.);
+        std::vector<double> accs(naxes, std::numeric_limits<double>::max());
+        std::vector<double> poss(naxes, 0.);
+        poss[2]=-10;
+        poss[0]=5.977;
+
+        imod->setControlModes(modes.data());
+        ipos->setRefSpeeds(vels.data());
+        ipos->setRefAccelerations(accs.data());
+        ipos->positionMove(poss.data());
+
+        auto done = false;
+        while(!done) {
+            yarp::os::Time::delay(1.);
+            ipos->checkMotionDone(&done);
+        }
     }
 
     void controlMono(int u, int v, double dt)
@@ -328,7 +350,7 @@ public:
     cv::Mat createEllipse(int puck_size){
 
         width = puck_size;
-        height = 0.7*puck_size;
+        height = 0.8*puck_size;
         cv::Point2d origin((width)/2, (height)/2);
 
         cv::Mat ell_filter = cv::Mat::zeros(height, width, CV_32F);
@@ -343,7 +365,7 @@ public:
                 else if (value > 0.4 && value<=0.8)
                     ell_filter.at<float>(y, x) = 2;
                 else
-                    ell_filter.at<float>(y, x) = -1.0;
+                    ell_filter.at<float>(y, x) = 0;
 
             }
         }
@@ -839,23 +861,31 @@ private:
 
     tracking tracker;
     detection detector;
-    ofstream file;
     double first_instant, startLat, startTime, currentTime, latTime;
     double neck_pitch;
     int n_seq;
     bool file_closed;
     eyeControlPID *vc;
+    double tau;
 
 protected:
 
 
 public:
     double eros_latency, computation_latency;
+    std::deque< std::array<double, 6> > data_to_save;
+
+    struct fake_latency{
+        cv::Point puck;
+        double tstamp;
+    };
+
+    std::deque<fake_latency> fakeLat_queue;
 
     asynch_thread(){}
 
     void run();
-    void initialise(cv::Mat &eros, int init_filter_width, cv::Rect roi, double thresh, std::mutex *m2, int n_trial, int n_exp, eyeControlPID* vc);
+    void initialise(cv::Mat &eros, int init_filter_width, cv::Rect roi, double thresh, std::mutex *m2, int n_trial, int n_exp, eyeControlPID* vc, double tau);
     void setStatus(int tracking);
     int getStatus();
     cv::Point getState();
@@ -884,15 +914,16 @@ private:
     int save,seq;
     cv::Point puck_position;
     bool first_timer;
+    ofstream file;
+    double tau;
 
-//    ev::window<ev::AE> input_port;
-    ev::BufferedPort<AE> input_port;
+    ev::window<ev::AE> input_port;
+//    ev::BufferedPort<AE> input_port;
     yarp::os::BufferedPort <yarp::sig::ImageOf<yarp::sig::PixelBgr> > image_out;
     yarp::sig::ImageOf<yarp::sig::PixelBgr> puckMap;
 
     eyeControlPID velocityController;
     asynch_thread dtrack_thread;
-
 
 protected:
 
