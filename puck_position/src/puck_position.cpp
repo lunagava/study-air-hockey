@@ -36,13 +36,13 @@ bool puckPosModule::configure(yarp::os::ResourceFinder& rf) {
     // module name
     setName((rf.check("name", Value("/puck_position")).asString()).c_str());
 
-    if(!velocityController.initVelControl(h, w))
-        return false;
+//    if(!velocityController.initVelControl(h, w))
+//        return false;
+//
+//    if(!velocityController.initPosControl())
+//        return false;
 
-    if(!velocityController.initPosControl())
-        return false;
-
-    velocityController.resetRobotHome();
+//    velocityController.resetRobotHome();
 
     yarp::os::Time::delay(1);
 
@@ -61,7 +61,9 @@ bool puckPosModule::configure(yarp::os::ResourceFinder& rf) {
 
     cv::Mat temp = EROS_vis.getSurface();
 //    yInfo()<<temp.rows<<temp.cols;
-    dtrack_thread.initialise(temp, 57, cv::Rect(285, 205, 70, 70), 3000, &m2, n_trial, n_exp, &velocityController, tau);
+
+    roi_detection = cv::Rect(200, 120, 240, 240);
+    dtrack_thread.initialise(temp, 200, roi_detection, 150000, &m2, n_trial, n_exp, &velocityController, tau);
     dtrack_thread.start();
 
 //    pause = false;
@@ -75,8 +77,8 @@ bool puckPosModule::configure(yarp::os::ResourceFinder& rf) {
     cv::namedWindow("DETECT_HEAT_MAP", cv::WINDOW_NORMAL);
     cv::moveWindow("DETECT_HEAT_MAP", 500,500);
 //
-//    cv::namedWindow("ROI TRACK", cv::WINDOW_NORMAL);
-//    cv::moveWindow("ROI TRACK", 600,600);
+    cv::namedWindow("ROI TRACK", cv::WINDOW_NORMAL);
+    cv::moveWindow("ROI TRACK", 600,600);
 //
 //    cv::namedWindow("ZOOM", cv::WINDOW_NORMAL);
 //    cv::moveWindow("ZOOM", 800,1200);
@@ -90,8 +92,8 @@ bool puckPosModule::configure(yarp::os::ResourceFinder& rf) {
 //    cv::namedWindow("GAUSSIAN MUL", cv::WINDOW_NORMAL);
 //    cv::moveWindow("GAUSSIAN MUL", 1400,1400);
 //
-    cv::namedWindow("ell_filter", cv::WINDOW_AUTOSIZE);
-    cv::moveWindow("ell_filter", 320,320);
+//    cv::namedWindow("ell_filter", cv::WINDOW_AUTOSIZE);
+//    cv::moveWindow("ell_filter", 320,320);
 
 //    cv::namedWindow("init filter", cv::WINDOW_NORMAL);
 //    cv::moveWindow("init filter", 320,320);
@@ -160,14 +162,14 @@ bool puckPosModule::updateModule() {
     cv::Point  puck_init = dtrack_thread.getInitPos();
 
 //    yInfo()<<puck_position.x<<" "<<puck_position.y;
-    cv::circle(eros_bgr, puck_position,5, cv::Scalar(0,0,255), cv::FILLED);
-    cv::circle(eros_bgr, cv::Point(320,240),5, cv::Scalar(0,255,0), cv::FILLED);
+//    cv::circle(eros_bgr, puck_position,5, cv::Scalar(0,0,255), cv::FILLED);
+//    cv::circle(eros_bgr, cv::Point(320,240),5, cv::Scalar(0,255,0), cv::FILLED);
 
 //    cv::rectangle(eros_bgr, cv::Point(puck_roi.x, puck_roi.y), cv::Point(puck_roi.x+puck_roi.width, puck_roi.y+puck_roi.height), cv::Scalar(180,119,31), 3);
 //    if(dtrack_thread.getStatus())
 //        cv::circle(eros_bgr, puck_init,5, cv::Scalar(255,0,0), cv::FILLED);
     if(!dtrack_thread.getStatus()){
-        cv::rectangle(eros_bgr, cv::Point(285, 205), cv::Point(355, 275), cv::Scalar(255,127,0), 3);
+        cv::rectangle(eros_bgr, roi_detection, cv::Scalar(255,127,0), 3);
         cv::circle(eros_bgr, puck_init,5, cv::Scalar(0,0,255), cv::FILLED);
     }
 
@@ -301,8 +303,8 @@ void asynch_thread::run() {
     bool first_detection=true;
     setStatus(0);
 
-    vc->scroll_yaw();
-    vc->resetRobotHome();
+//    vc->scroll_yaw();
+//    vc->resetRobotHome();
     while(!isStopping())
     {
         eros.copyTo(temp);
@@ -374,32 +376,32 @@ void asynch_thread::run() {
 //            yInfo()<<dt<<" "<<getLatencyTime()<<" "<<eros_diff_time<<" "<<puck_pos.x<<" "<<puck_pos.y<<" "<<endl;
 //            yInfo()<<"error"<<vc->computeErrorDistance(puck_pos.x, puck_pos.y);
 
-            cv::Point sent_pos;
-            bool found_pos_sent=false;
-            while(fakeLat_queue.size()>0 && (yarp::os::Time::now()-fakeLat_queue.front().tstamp)>tau){
-                sent_pos = fakeLat_queue.front().puck;
-                found_pos_sent = true;
-                fakeLat_queue.pop_front();
-//                yInfo()<<"filling the queue";
-            }
-            if(found_pos_sent){
-//                yInfo()<<"found_pos_sent";
-                data_to_save.push_back({yarp::os::Time::now(), getLatencyTime(), eros_diff_time, tau, double(sent_pos.x), double(sent_pos.y)});
-                if (vc->computeErrorDistance(sent_pos.x, sent_pos.y) > errorTh){
-                    vc->controlMono(sent_pos.x, sent_pos.y, dt);
-//                    yInfo()<<"robot move";
-
-                }
-                else
-                    vc->controlReset();
-            }
-
-            setPitch(vc->getJointPos(0));
+//            cv::Point sent_pos;
+//            bool found_pos_sent=false;
+//            while(fakeLat_queue.size()>0 && (yarp::os::Time::now()-fakeLat_queue.front().tstamp)>tau){
+//                sent_pos = fakeLat_queue.front().puck;
+//                found_pos_sent = true;
+//                fakeLat_queue.pop_front();
+////                yInfo()<<"filling the queue";
+//            }
+//            if(found_pos_sent){
+////                yInfo()<<"found_pos_sent";
+//                data_to_save.push_back({yarp::os::Time::now(), getLatencyTime(), eros_diff_time, tau, double(sent_pos.x), double(sent_pos.y)});
+//                if (vc->computeErrorDistance(sent_pos.x, sent_pos.y) > errorTh){
+//                    vc->controlMono(sent_pos.x, sent_pos.y, dt);
+////                    yInfo()<<"robot move";
+//
+//                }
+//                else
+//                    vc->controlReset();
+//            }
+//
+//            setPitch(vc->getJointPos(0));
 
         }
         m2->unlock();
 
-        tracker.setPitch(getPitch());
+//        tracker.setPitch(getPitch());
 
     }
 
