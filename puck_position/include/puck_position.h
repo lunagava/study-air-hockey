@@ -34,6 +34,7 @@
 #include <yarp/dev/IVelocityControl.h>
 
 #include <event-driven/core.h>
+#include <event-driven/comms.h>
 #include <event-driven/algs.h>
 
 #include <iostream>
@@ -263,7 +264,7 @@ public:
 //        yInfo()<<"vel: "<<velocity[0]<<velocity[2];
         //ivel->velocityMove(0, neck_tilt);
         //ivel->velocityMove(2, neck_pan);
-        ivel->velocityMove(velocity.data());
+//        ivel->velocityMove(velocity.data());
 
 //        double vel_tilt, vel_pan;
 //        ivel->getRefVelocity(0,&vel_tilt);
@@ -567,7 +568,7 @@ private:
         cv::rectangle(H, zoom, cv::Scalar(255, 0, 255));
         cv::rectangle(H, zoom2, cv::Scalar(255, 0, 255));
 
-        cv::imshow("ROI TRACK", H);
+//        cv::imshow("ROI TRACK", H);
 //        cv::imshow("ZOOM", result_final(zoom));
 //        cv::imshow("GAUSSIAN MUL", result_final_filtered);
 
@@ -597,7 +598,7 @@ private:
 //        cv::cvtColor(vis_ellipse,color_ellipse, cv::COLOR_GRAY2BGR);
 //        cv::imshow("ell_filter", color_ellipse);
 
-        cv::imshow("ell_filter",filter_set[make_pair(width,height)]);
+//        cv::imshow("ell_filter",filter_set[make_pair(width,height)]);
 //        cv::waitKey(1);
 
         if(p.s > 0){
@@ -850,6 +851,86 @@ public:
 
 };
 
+class speedUpEROS{
+
+private:
+    cv::Mat eros;
+    cv::Mat eros_norm;
+    cv::Mat result_convolution;
+    cv::Mat dest;
+    cv::Mat roi;
+    cv::Mat in[2];
+    cv::Mat cbuf8u;
+    int cur_buf{0};
+    std::mutex m;
+    double decay{255};
+    int k_size{7};
+
+public:
+
+void init(){
+    eros=cv::Mat::zeros(480,640, CV_8U);
+    in[0]=cv::Mat::zeros(480,640, CV_8U);
+    in[1]=cv::Mat::zeros(480,640, CV_8U);
+}
+
+static constexpr void switch_buffer(int &buf_i) {buf_i = (buf_i + 1) % 2;};
+
+template <typename T> void addEvents(T begin, T end){
+
+    m.lock();
+    for (auto a = begin; a != end; a++) {
+        int x = a->x;
+        int y = a->y;
+//        yInfo()<<x<<y;
+        in[cur_buf].at<unsigned char>(y,x) = 255;
+    }
+    m.unlock();
+}
+
+cv::Mat getEROS(){
+
+    cv::Mat &c_buf = in[cur_buf];
+//    yInfo()<<cv::countNonZero(in[cur_buf]);
+
+//    cv::namedWindow("new_eros", cv::WINDOW_NORMAL);
+//    cv::imshow("new_eros", in[cur_buf]);
+//    cv::waitKey(1);
+
+//    for(int r=0; r<c_buf.rows; r++){
+//        for(int c=0; c<c_buf.cols; c++){
+//
+//            std::cout<<c_buf.at<unsigned char>(c,r)<<" ";
+//        }
+//        std::cout<<std::endl;
+//    }
+
+    m.lock();
+    switch_buffer(cur_buf);
+    m.unlock();
+
+    double thresh = decay;
+
+    roi = cv::Mat::ones(k_size, k_size, CV_8U);
+
+    cv::filter2D(c_buf, result_convolution, -1, roi, cv::Point(-1, -1), 0, cv::BORDER_CONSTANT);
+    cv::threshold(result_convolution, dest, thresh, 255, cv::THRESH_BINARY);
+    c_buf.mul(dest);
+//    c_buf.convertTo(cbuf8u, CV_8U);
+//    c_buf.copyTo(c_buf, cbuf8u);
+
+//    cv::normalize(eros, eros_norm, 0, 255, cv::NORM_MINMAX);
+//    eros_norm.convertTo(eros_norm, CV_8U);
+
+    cv::namedWindow("new_eros", cv::WINDOW_NORMAL);
+    cv::imshow("new_eros", c_buf);
+    cv::waitKey(1);
+
+    return c_buf;
+}
+
+};
+
 class asynch_thread:public Thread{
 
 private:
@@ -866,7 +947,9 @@ private:
     int n_seq;
     bool file_closed;
     eyeControlPID *vc;
+    speedUpEROS *fEROS;
     double tau;
+    bool control;
 
 protected:
 
@@ -885,7 +968,7 @@ public:
     asynch_thread(){}
 
     void run();
-    void initialise(cv::Mat &eros, int init_filter_width, cv::Rect roi, double thresh, std::mutex *m2, int n_trial, int n_exp, eyeControlPID* vc, double tau);
+    void initialise(cv::Mat &eros, int init_filter_width, cv::Rect roi, double thresh, std::mutex *m2, int n_trial, int n_exp, eyeControlPID* vc, double tau, bool control, speedUpEROS* fEROS);
     void setStatus(int tracking);
     int getStatus();
     cv::Point getState();
@@ -916,6 +999,7 @@ private:
     bool first_timer;
     ofstream file;
     double tau;
+    bool control;
 
     ev::window<ev::AE> input_port;
 //    ev::BufferedPort<AE> input_port;
@@ -924,6 +1008,7 @@ private:
 
     eyeControlPID velocityController;
     asynch_thread dtrack_thread;
+    speedUpEROS EROS_fast;
 
 protected:
 
@@ -945,4 +1030,3 @@ public:
 };
 
 #endif
-//empty line
