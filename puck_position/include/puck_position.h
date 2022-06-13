@@ -854,17 +854,17 @@ public:
 class speedUpEROS{
 
 private:
-    cv::Mat eros;
+    cv::Mat eros, eros32f;
     cv::Mat eros_norm;
-    cv::Mat result_convolution;
+    cv::Mat result_convolution, result_convolution32f;
     cv::Mat dest;
     cv::Mat roi;
     cv::Mat in[2];
-    cv::Mat cbuf8u;
     int cur_buf{0};
     std::mutex m;
-    double decay{255};
-    int k_size{7};
+    double decay{0};
+    double parameter{0.05};
+    int k_size{21};
 
 public:
 
@@ -872,6 +872,9 @@ void init(){
     eros=cv::Mat::zeros(480,640, CV_8U);
     in[0]=cv::Mat::zeros(480,640, CV_8U);
     in[1]=cv::Mat::zeros(480,640, CV_8U);
+
+    decay = 0.7;
+    yInfo()<<decay;
 }
 
 static constexpr void switch_buffer(int &buf_i) {buf_i = (buf_i + 1) % 2;};
@@ -909,24 +912,33 @@ cv::Mat getEROS(){
     switch_buffer(cur_buf);
     m.unlock();
 
-    double thresh = decay;
+    double thresh = 1;
 
-    roi = cv::Mat::ones(k_size, k_size, CV_8U);
+    roi = cv::Mat::ones(k_size, k_size, CV_32F);
 
     cv::filter2D(c_buf, result_convolution, -1, roi, cv::Point(-1, -1), 0, cv::BORDER_CONSTANT);
-    cv::threshold(result_convolution, dest, thresh, 255, cv::THRESH_BINARY);
-    c_buf.mul(dest);
-//    c_buf.convertTo(cbuf8u, CV_8U);
-//    c_buf.copyTo(c_buf, cbuf8u);
+    result_convolution.convertTo(result_convolution32f, CV_32F);
+    cv::threshold(result_convolution32f, dest, thresh, 1-decay, cv::THRESH_BINARY_INV);
+    dest += decay;
+
+    eros.convertTo(eros32f, CV_32F);
+
+    eros32f = eros32f.mul(dest);
+
+    eros32f.convertTo(eros, CV_8U);
+
+    c_buf.copyTo(eros, c_buf);
 
 //    cv::normalize(eros, eros_norm, 0, 255, cv::NORM_MINMAX);
 //    eros_norm.convertTo(eros_norm, CV_8U);
 
     cv::namedWindow("new_eros", cv::WINDOW_NORMAL);
-    cv::imshow("new_eros", c_buf);
+    cv::imshow("new_eros", eros);
     cv::waitKey(1);
 
-    return c_buf;
+    c_buf = 0;
+
+    return eros;
 }
 
 };
