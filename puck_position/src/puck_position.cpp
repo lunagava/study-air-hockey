@@ -27,11 +27,11 @@ using namespace std;
 bool puckPosModule::configure(yarp::os::ResourceFinder& rf) {
 
     // options and parameters
-    w = rf.check("w", Value(640)).asInt();
-    h = rf.check("h", Value(480)).asInt();
-    n_trial = rf.check("n_trial", Value(1)).asInt();
-    n_exp = rf.check("n_exp", Value(1)).asInt();
-    tau=rf.check("tau", Value(0)).asDouble();
+    w = rf.check("w", Value(640)).asInt32();
+    h = rf.check("h", Value(480)).asInt32();
+    n_trial = rf.check("n_trial", Value(1)).asInt32();
+    n_exp = rf.check("n_exp", Value(1)).asInt32();
+    tau=rf.check("tau", Value(0)).asFloat64();
     control= rf.check("control", Value(false)).asBool();
 
     // module name
@@ -325,100 +325,104 @@ void asynch_thread::run() {
     {
 //        eros.copyTo(temp);
         fEROS->getEROS().copyTo(temp);
-        cv::GaussianBlur(temp, eros_filtered, cv::Size(5, 5), 0);
+
+        double dT = yarp::os::Time::now() - tic;
+        tic += dT;
+        yInfo() << "Running at a cool " << 1.0 / dT << "Hz";
+//        cv::GaussianBlur(temp, eros_filtered, cv::Size(5, 5), 0);
 
 //        yInfo()<<temp.rows<<temp.cols;
 //        yInfo()<<eros_filtered.rows<<eros_filtered.cols;
         // --- DETECTION PHASE ----
-        m2->lock();
-        if (!getStatus())
-        {
-            if(detector.detect(eros_filtered)){
-                setStatus(1);
-                tracker.resetKalman(detector.getDetection(), detector.getSize());
-                if(first_detection==true){
-                    detection_time = getCurrentTime();
-                    yInfo()<<"x="<<detector.getDetection().x<<",y="<<detector.getDetection().y<<",ts="<<detection_time-getFirstTime();
-                    data_to_save.push_back({detection_time-getFirstTime(), 0, 0, double(detector.getDetection().x), double(detector.getDetection().y)});
-                    first_detection=false;
-                }
-//                yInfo()<<"first detected = ("<<detector.getDetection().x<<","<<detector.getDetection().y<<")";
-            }
-        }
-        // ---- TRACKING PHASE ----
-        else{
-
-            // UPDATE RATE
-            double dT = yarp::os::Time::now() - tic;
-            tic += dT;
-            double eros_time_before= getCurrentTime();
-//            yInfo() << "Running at a cool " << 1.0 / dT << "Hz";
-            puck_pos = tracker.track(eros_filtered, dT);
-            fakeLat_queue.push_back({puck_pos, yarp::os::Time::now()});
-
-            double eros_time_after = getCurrentTime();
-
-            double eros_diff_time = eros_time_after-eros_time_before;
-//            yInfo()<<latency;
-
-//            yInfo()<<getLatencyTime();
-
-            eros_latency=getLatencyTime();
-            computation_latency=eros_diff_time;
-
-//            yInfo()<<"lATENCY: "<<getLatencyTime()+eros_diff_time;
-//            file<<(getCurrentTime()-getFirstTime())<<" "<<puck_pos.x<<" "<<puck_pos.y<<" "<<getLatencyTime()+eros_diff_time<<" "<<1.0 / dT<<" "<<tracker.get_convROI().width<<" "<<tracker.get_convROI().height<<endl;
-
-//            if (puck_pos.x<=3){
-//                setStatus(0);
-//            }
-
+//        m2->lock();
+//        if (!getStatus())
+//        {
 //            if(detector.detect(eros_filtered)){
 //                setStatus(1);
 //                tracker.resetKalman(detector.getDetection(), detector.getSize());
-//                detection_time = yarp::os::Time::now();
+//                if(first_detection==true){
+//                    detection_time = getCurrentTime();
+//                    yInfo()<<"x="<<detector.getDetection().x<<",y="<<detector.getDetection().y<<",ts="<<detection_time-getFirstTime();
+//                    data_to_save.push_back({detection_time-getFirstTime(), 0, 0, double(detector.getDetection().x), double(detector.getDetection().y)});
+//                    first_detection=false;
+//                }
 ////                yInfo()<<"first detected = ("<<detector.getDetection().x<<","<<detector.getDetection().y<<")";
 //            }
-
-            if(control){
-                static double trecord = yarp::os::Time::now();
-                double dt = yarp::os::Time::now() - trecord;
-                trecord += dt;
-
-                double errorTh = 3; // pixels
-                double samePosTime = 2; //s
-
-//    velocityController.closeToLimit(0);
-//    velocityController.closeToLimit(2);
-
-//            yInfo()<<dt<<" "<<getLatencyTime()<<" "<<eros_diff_time<<" "<<puck_pos.x<<" "<<puck_pos.y<<" "<<endl;
-//            yInfo()<<"error"<<vc->computeErrorDistance(puck_pos.x, puck_pos.y);
-
-                cv::Point sent_pos;
-                bool found_pos_sent=false;
-                while(fakeLat_queue.size()>0 && (yarp::os::Time::now()-fakeLat_queue.front().tstamp)>tau){
-                    sent_pos = fakeLat_queue.front().puck;
-                    found_pos_sent = true;
-                    fakeLat_queue.pop_front();
-//                yInfo()<<"filling the queue";
-                }
-                if(found_pos_sent){
-//                yInfo()<<"found_pos_sent";
-                    data_to_save.push_back({yarp::os::Time::now(), getLatencyTime(), eros_diff_time, tau, double(sent_pos.x), double(sent_pos.y)});
-                    if (vc->computeErrorDistance(sent_pos.x, sent_pos.y) > errorTh){
-                        vc->controlMono(sent_pos.x, sent_pos.y, dt);
-//                    yInfo()<<"robot move";
-
-                    }
-                    else
-                        vc->controlReset();
-                }
-
-                setPitch(vc->getJointPos(0));
-            }
-
-        }
-        m2->unlock();
+//        }
+//        // ---- TRACKING PHASE ----
+//        else{
+//
+//            // UPDATE RATE
+//            double dT = yarp::os::Time::now() - tic;
+//            tic += dT;
+//            double eros_time_before= getCurrentTime();
+////            yInfo() << "Running at a cool " << 1.0 / dT << "Hz";
+//            puck_pos = tracker.track(eros_filtered, dT);
+//            fakeLat_queue.push_back({puck_pos, yarp::os::Time::now()});
+//
+//            double eros_time_after = getCurrentTime();
+//
+//            double eros_diff_time = eros_time_after-eros_time_before;
+////            yInfo()<<latency;
+//
+////            yInfo()<<getLatencyTime();
+//
+//            eros_latency=getLatencyTime();
+//            computation_latency=eros_diff_time;
+//
+////            yInfo()<<"lATENCY: "<<getLatencyTime()+eros_diff_time;
+////            file<<(getCurrentTime()-getFirstTime())<<" "<<puck_pos.x<<" "<<puck_pos.y<<" "<<getLatencyTime()+eros_diff_time<<" "<<1.0 / dT<<" "<<tracker.get_convROI().width<<" "<<tracker.get_convROI().height<<endl;
+//
+////            if (puck_pos.x<=3){
+////                setStatus(0);
+////            }
+//
+////            if(detector.detect(eros_filtered)){
+////                setStatus(1);
+////                tracker.resetKalman(detector.getDetection(), detector.getSize());
+////                detection_time = yarp::os::Time::now();
+//////                yInfo()<<"first detected = ("<<detector.getDetection().x<<","<<detector.getDetection().y<<")";
+////            }
+//
+//            if(control){
+//                static double trecord = yarp::os::Time::now();
+//                double dt = yarp::os::Time::now() - trecord;
+//                trecord += dt;
+//
+//                double errorTh = 3; // pixels
+//                double samePosTime = 2; //s
+//
+////    velocityController.closeToLimit(0);
+////    velocityController.closeToLimit(2);
+//
+////            yInfo()<<dt<<" "<<getLatencyTime()<<" "<<eros_diff_time<<" "<<puck_pos.x<<" "<<puck_pos.y<<" "<<endl;
+////            yInfo()<<"error"<<vc->computeErrorDistance(puck_pos.x, puck_pos.y);
+//
+//                cv::Point sent_pos;
+//                bool found_pos_sent=false;
+//                while(fakeLat_queue.size()>0 && (yarp::os::Time::now()-fakeLat_queue.front().tstamp)>tau){
+//                    sent_pos = fakeLat_queue.front().puck;
+//                    found_pos_sent = true;
+//                    fakeLat_queue.pop_front();
+////                yInfo()<<"filling the queue";
+//                }
+//                if(found_pos_sent){
+////                yInfo()<<"found_pos_sent";
+//                    data_to_save.push_back({yarp::os::Time::now(), getLatencyTime(), eros_diff_time, tau, double(sent_pos.x), double(sent_pos.y)});
+//                    if (vc->computeErrorDistance(sent_pos.x, sent_pos.y) > errorTh){
+//                        vc->controlMono(sent_pos.x, sent_pos.y, dt);
+////                    yInfo()<<"robot move";
+//
+//                    }
+//                    else
+//                        vc->controlReset();
+//                }
+//
+//                setPitch(vc->getJointPos(0));
+//            }
+//
+//        }
+//        m2->unlock();
 
         tracker.setPitch(getPitch());
 

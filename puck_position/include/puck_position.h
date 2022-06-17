@@ -916,17 +916,32 @@ cv::Mat getEROS(){
 
     roi = cv::Mat::ones(k_size, k_size, CV_32F);
 
-    cv::filter2D(c_buf, result_convolution, -1, roi, cv::Point(-1, -1), 0, cv::BORDER_CONSTANT);
-    result_convolution.convertTo(result_convolution32f, CV_32F);
-    cv::threshold(result_convolution32f, dest, thresh, 1-decay, cv::THRESH_BINARY_INV);
-    dest += decay;
+    cv::Mat c_buf_ones;
+    c_buf.copyTo(c_buf_ones);
+    c_buf_ones/=255;
+
+    cv::filter2D(c_buf_ones, result_convolution, -1, roi, cv::Point(-1, -1), 0, cv::BORDER_CONSTANT);
+
+    cv::Mat decay_matrix = cv::Mat::zeros(480, 640, CV_32F);
+
+    for (int i=0; i<result_convolution.cols; i++){
+        for (int j=0; j<result_convolution.rows; j++){
+            decay_matrix.at<float>(j,i) = pow(decay, result_convolution.at<unsigned char>(j,i));
+        }
+    }
+
+//    result_convolution.convertTo(result_convolution32f, CV_32F);
+//    cv::threshold(result_convolution32f, dest, thresh, 1-decay, cv::THRESH_BINARY_INV);
+//    dest += decay;
+
+//    eros.convertTo(eros32f, CV_32F);
+//    eros32f = eros32f.mul(dest);
+//    eros32f.convertTo(eros, CV_8U);
+//    c_buf.copyTo(eros, c_buf);
 
     eros.convertTo(eros32f, CV_32F);
-
-    eros32f = eros32f.mul(dest);
-
+    eros32f = eros32f.mul(decay_matrix);
     eros32f.convertTo(eros, CV_8U);
-
     c_buf.copyTo(eros, c_buf);
 
 //    cv::normalize(eros, eros_norm, 0, 255, cv::NORM_MINMAX);
