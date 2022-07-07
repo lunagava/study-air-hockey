@@ -42,7 +42,8 @@
 #include <opencv2/calib3d.hpp>
 #include <opencv2/calib3d/calib3d_c.h>
 
-#include "hpe-core/representations.h"
+//#include "hpe-core/representations.h"
+#include "event-driven/algs.h"
 
 using namespace ev;
 using namespace cv;
@@ -598,7 +599,7 @@ private:
     int n_trial, n_exp;
     std::mutex m, m2;
     int w, h;
-    hpecore::surface EROS_vis;
+    ev::EROS EROS_vis;
     double start_time_latency;
     int save,seq;
     ofstream file;

@@ -112,12 +112,12 @@ void puckPosModule::run() {
         if(input_port.isStopping())
             break;
         eros_thread.setCurrentTime(my_info.timestamp);
-        int count = 0;
+//        int count = 0;
 //        yInfo()<<my_info.count;
         for(auto a = input_port.begin(); a != input_port.end(); a++) {
-            EROS_vis.EROSupdate((*a).x, (*a).y);
+            EROS_vis.update((*a).x, (*a).y);
 
-            count++;
+//            count++;
 //            yarp::sig::PixelBgr &ePix = puckMap.pixel((*a).x,(*a).y);
 //            ePix.r = ePix.b = ePix.g = 255;
 
@@ -126,7 +126,7 @@ void puckPosModule::run() {
         }
 //        yInfo()<<"number of times eros is updated for a packet: "<<count;
         eros_thread.setLatencyTime(input_port.stats_unprocessed().duration);
-        eros_thread.setNumberEvents(count);
+        eros_thread.setNumberEvents(input_port.stats_unprocessed().count);
 
 //        yInfo()<<"set="<<input_port.stats_unprocessed().duration;
 
