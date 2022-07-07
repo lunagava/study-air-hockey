@@ -557,10 +557,10 @@ private:
     std::mutex *m2;
     cv::Point puck_pos;
     int save_file;
+    double nEvents;
 
     tracking tracker;
     detection detector;
-    ofstream file;
     double first_instant, startLat, startTime, currentTime, latTime;
     int n_seq;
     bool file_closed;
@@ -569,6 +569,8 @@ protected:
 
 
 public:
+    std::deque< std::array<double, 10> > data_to_save;
+
     asynch_thread(){}
 
     void run();
@@ -582,6 +584,8 @@ public:
     double getCurrentTime();
     void setLatencyTime(double latency);
     double getLatencyTime();
+    void setNumberEvents(double n_events);
+    double getNumberEvents();
     cv::Rect getTrackROI();
     cv::Point getInitPos();
 };
@@ -597,6 +601,7 @@ private:
     hpecore::surface EROS_vis;
     double start_time_latency;
     int save,seq;
+    ofstream file;
 
     ev::window<ev::AE> input_port;
     yarp::os::BufferedPort <yarp::sig::ImageOf<yarp::sig::PixelBgr> > image_out;

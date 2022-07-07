@@ -52,7 +52,7 @@
 #include <yarp/sig/Matrix.h>
 #include <yarp/math/Math.h>
 #include <yarp/os/all.h>
-#include <event-driven/all.h>
+//#include <event-driven/all.h>
 
 //using namespace ev;
 using namespace cv;
@@ -98,7 +98,7 @@ class ControllerModule: public yarp::os::RFModule, public yarp::os::Thread
     yarp::os::BufferedPort<yarp::os::Bottle> targetPort;
     yarp::os::BufferedPort<yarp::os::Bottle> yposPort, puckPort, hand_pix_port, eyePort;
     yarp::os::RpcServer handlerPort;
-    ev::vReadPort< vector<ev::AE> > gen1_input_port;
+//    ev::vReadPort< vector<ev::AE> > gen1_input_port;
 
     linearTraj genLinTraj;
 
@@ -159,12 +159,12 @@ class ControllerModule: public yarp::os::RFModule, public yarp::os::Thread
                 }
                 break;
         }
-//        ipos[i]->positionMove(poss.data());
-//        auto done = false;
-//        while(!done) {
-//            yarp::os::Time::delay(1.);
-//            ipos[i]->checkMotionDone(&done);
-//        }
+        ipos[i]->positionMove(poss.data());
+        auto done = false;
+        while(!done) {
+            yarp::os::Time::delay(1.);
+            ipos[i]->checkMotionDone(&done);
+        }
 
         std::fill(begin(modes), end(modes), VOCAB_CM_POSITION_DIRECT);
         imod->setControlModes(modes.data());
@@ -305,8 +305,8 @@ class ControllerModule: public yarp::os::RFModule, public yarp::os::Thread
         // attach the callback respond()
         attach(handlerPort);
 
-        if(!gen1_input_port.open(getName() + "/AE:i"))
-            return false;
+//        if(!gen1_input_port.open(getName() + "/AE:i"))
+//            return false;
 
         myFile1.open("/code/luna/study-air-hockey/movingCam_exp2.txt");
         if (!myFile1.is_open())
@@ -349,17 +349,17 @@ class ControllerModule: public yarp::os::RFModule, public yarp::os::Thread
 
 //        std::cout << "inside RUN"<<std::endl;
 
-        Stamp ystamp;
-        while (Thread::isRunning()) {
-
-            unsigned int nqs = gen1_input_port.queryunprocessed();
-            for (int i = 0; i < nqs; i++) {
-                const vector<ev::AE> *q = gen1_input_port.read(ystamp);
-                if (!q || Thread::isStopping()) return;
-                for (auto &v : *q) {
-                    proj_image.at<cv::Vec3b>(v.y,v.x)=cv::Vec3b(255, 255, 255);
-                }
-            }
+//        Stamp ystamp;
+//        while (Thread::isRunning()) {
+//
+//            unsigned int nqs = gen1_input_port.queryunprocessed();
+//            for (int i = 0; i < nqs; i++) {
+//                const vector<ev::AE> *q = gen1_input_port.read(ystamp);
+//                if (!q || Thread::isStopping()) return;
+//                for (auto &v : *q) {
+//                    proj_image.at<cv::Vec3b>(v.y,v.x)=cv::Vec3b(255, 255, 255);
+//                }
+//            }
 
 ////            std::cout << "inside LOOP"<<std::endl;
 //            yarp::os::Bottle *b = puckPort.read();
@@ -369,7 +369,7 @@ class ControllerModule: public yarp::os::RFModule, public yarp::os::Thread
 //            puck_velocity =  b->get(3).asInt();
 //            // std::cout << "u_puck = " << u << ", v_puck = " << v << std::endl;
 
-        }
+//        }
     }
 
     bool respond(const yarp::os::Bottle &command, yarp::os::Bottle &reply)
@@ -487,8 +487,8 @@ class ControllerModule: public yarp::os::RFModule, public yarp::os::Thread
         std::tie(right_bottom_vertex, left_bottom_vertex, right_top_vertex, left_top_vertex) = project_four_vertices_table();
         std::tie(star_right_bottom, star_left_bottom, star_right_top, star_left_top) = project_four_stars_table();
 
-        yInfo()<<star_right_bottom[0]<<" "<<star_right_bottom[1]<<" "<<star_left_bottom[0]<<" "<<star_left_bottom[1];
-        yInfo()<<star_right_top[0]<<" "<<star_right_top[1]<<" "<<star_left_top[0]<<" "<<star_left_top[1];
+//        yInfo()<<star_right_bottom[0]<<" "<<star_right_bottom[1]<<" "<<star_left_bottom[0]<<" "<<star_left_bottom[1];
+//        yInfo()<<star_right_top[0]<<" "<<star_right_top[1]<<" "<<star_left_top[0]<<" "<<star_left_top[1];
 
 //        cv::circle(proj_image, cv::Point(star_right_bottom[0], star_right_bottom[1]), 5, cv::Scalar(0, 255, 0), -1, 8);
 //        cv::circle(proj_image, cv::Point(star_left_bottom[0], star_left_bottom[1]), 5, cv::Scalar(0, 255, 0), -1, 8);

@@ -7,7 +7,7 @@ cmake_minimum_required(VERSION 3.12)
 
 project(study-air-hockey)
 
-add_subdirectory(tracker)
+#add_subdirectory(tracker)
 
 find_package(event-driven REQUIRED)
 find_package(YARP 3.3.0 REQUIRED COMPONENTS os sig dev math)
@@ -26,10 +26,15 @@ target_compile_definitions(${PROJECT_NAME}-2 PRIVATE _USE_MATH_DEFINES)
 target_link_libraries(${PROJECT_NAME}-2 ${YARP_LIBRARIES} ev::event-driven)
 install(TARGETS ${PROJECT_NAME}-2 DESTINATION bin)
 
-add_executable(${PROJECT_NAME}-3 ${CMAKE_SOURCE_DIR}/src/study-3.cpp)
-target_compile_definitions(${PROJECT_NAME}-3 PRIVATE _USE_MATH_DEFINES)
-target_link_libraries(${PROJECT_NAME}-3 ${YARP_LIBRARIES} ev::event-driven ${OpenCV_LIBRARIES})
-install(TARGETS ${PROJECT_NAME}-3 DESTINATION bin)
+#add_executable(${PROJECT_NAME}-3 ${CMAKE_SOURCE_DIR}/src/study-3.cpp)
+#target_compile_definitions(${PROJECT_NAME}-3 PRIVATE _USE_MATH_DEFINES)
+#target_link_libraries(${PROJECT_NAME}-3 ${YARP_LIBRARIES} ev::event-driven ${OpenCV_LIBRARIES})
+#install(TARGETS ${PROJECT_NAME}-3 DESTINATION bin)
+
+add_executable(projection ${CMAKE_SOURCE_DIR}/src/projection.cpp)
+target_compile_definitions(projection PRIVATE _USE_MATH_DEFINES)
+target_link_libraries(projection ${YARP_LIBRARIES} ev::event-driven)
+install(TARGETS projection DESTINATION bin)
 
 file(GLOB conf ${CMAKE_SOURCE_DIR}/app/conf/*.ini ${CMAKE_SOURCE_DIR}/app/conf/*.tsv)
 file(GLOB scripts ${CMAKE_SOURCE_DIR}/app/scripts/*.xml)
