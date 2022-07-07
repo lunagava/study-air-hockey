@@ -82,11 +82,11 @@ public:
                 double dy = (pow(y,2) -2*origin.y*y + pow(origin.y,2))/pow((height)/2,2);
                 double value = dx+ dy;
                 if(value > 1)
-                    ell_filter.at<float>(y, x) = 0;
+                    ell_filter.at<float>(y, x) = -1;
                 else if (value > 0.6 && value<=1)
                     ell_filter.at<float>(y, x) = 1;
                 else
-                    ell_filter.at<float>(y, x) = -1;
+                    ell_filter.at<float>(y, x) = 1;
 
             }
         }
@@ -144,27 +144,29 @@ public:
 //        peak_conv_bottle.addDouble(max);
 //        peakPort.write();
 
-//        cv::normalize(result_convolution, result_conv_normalized, 255, 0, cv::NORM_MINMAX);
-//        result_conv_normalized.convertTo(result_visualization, CV_8U);
-//
-//        cv::cvtColor(result_visualization, result_color, cv::COLOR_GRAY2BGR);
-//        if (max>thresh)
-//            cv::circle(result_color, max_loc, 5, cv::Scalar(255, 0, 0), cv::FILLED);
-//        else
-//            cv::circle(result_color, max_loc, 5, cv::Scalar(0, 0, 255), cv::FILLED);
-//
-//        cv::imshow("DETECT_MAP", eros(roi));
-//
-//        result_convolution.at<float>(0,0) = 4000;
-//        cv::normalize(result_convolution, heat_map, 0, 255, cv::NORM_MINMAX);
-//        heat_map.convertTo(heat_map, CV_8U);
-//
-//        cv::applyColorMap(heat_map, result_final, cv::COLORMAP_JET);
-//
-//        cv::imshow("DETECT_HEAT_MAP", result_final);
-//        cv::waitKey(1);
+        cv::normalize(result_convolution, result_conv_normalized, 255, 0, cv::NORM_MINMAX);
+        result_conv_normalized.convertTo(result_visualization, CV_8U);
+
+        cv::cvtColor(result_visualization, result_color, cv::COLOR_GRAY2BGR);
+        if (max>thresh)
+            cv::circle(result_color, max_loc, 5, cv::Scalar(255, 0, 0), cv::FILLED);
+        else
+            cv::circle(result_color, max_loc, 5, cv::Scalar(0, 0, 255), cv::FILLED);
+
+        cv::imshow("DETECT_MAP", result_color);
+
+        result_convolution.at<float>(0,0) = 200;
+        cv::normalize(result_convolution, heat_map, 0, 255, cv::NORM_MINMAX);
+        heat_map.convertTo(heat_map, CV_8U);
+
+        cv::applyColorMap(heat_map, result_final, cv::COLORMAP_JET);
+
+        cv::imshow("DETECT_HEAT_MAP", result_final);
+        cv::waitKey(1);
 
         max_loc += cv::Point(roi.x, roi.y);
+
+        yInfo()<<max;
 
         return max>thresh;
     }
@@ -284,11 +286,11 @@ private:
         cv::rectangle(H, zoom, cv::Scalar(255, 0, 255));
         cv::rectangle(H, zoom2, cv::Scalar(255, 0, 255));
 
-//        cv::imshow("ROI TRACK", H);
-//        cv::imshow("ZOOM", result_final(zoom));
-//        cv::imshow("GAUSSIAN MUL", result_final_filtered);
+        cv::imshow("ROI TRACK", H);
+        cv::imshow("ZOOM", result_final(zoom));
+        cv::imshow("GAUSSIAN MUL", result_final_filtered);
 
-//        cv::waitKey(1);
+        cv::waitKey(1);
 
         return {new_peak_filtered + cv::Point(roi.x, roi.y), max};
     }
@@ -462,11 +464,11 @@ public:
                 double dy = (pow(y,2) -2*origin.y*y + pow(origin.y,2))/pow((height)/2,2);
                 double value = dx+ dy;
                 if(value > 0.8)
-                    ell_filter.at<float>(y, x) = -0.2;
+                    ell_filter.at<float>(y, x) = -1;
                 else if (value > 0.4 && value<=0.8)
-                    ell_filter.at<float>(y, x) = 3;
+                    ell_filter.at<float>(y, x) = 1;
                 else
-                    ell_filter.at<float>(y, x) = -1.0;
+                    ell_filter.at<float>(y, x) = 1;
 
 //                std::cout<<ell_filter.at<float>(y,x)<<" ";
 
@@ -556,8 +558,10 @@ private:
     cv::Mat eros;
     bool tracking_status;
     std::mutex *m2;
+    std::mutex *pim_mutex;
     cv::Point puck_pos;
     int save_file;
+    PIM* pim_vis;
 
     tracking tracker;
     detection detector;
@@ -573,7 +577,7 @@ public:
     asynch_thread(){}
 
     void run();
-    void initialise(cv::Mat &eros, int init_filter_width, cv::Rect roi, double thresh, std::mutex *m2, int n_trial, int n_exp);
+    void initialise(cv::Mat &eros, int init_filter_width, cv::Rect roi, double thresh, std::mutex *m2, int n_trial, int n_exp, std::mutex *pim_mutex, PIM *pim);
     void setStatus(int tracking);
     int getStatus();
     cv::Point getState();

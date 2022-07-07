@@ -45,12 +45,12 @@ bool puckPosModule::configure(yarp::os::ResourceFinder& rf) {
 
 //    EROS_vis.init(w, h, 7, 0.1);
     EROS_vis.init(w, h, 7, 0.3);
-    pim_vis.init(w, h, 0, 1.0);
+    pim_vis.init(w, h, 0, 10);
 
     yarp::os::Network::connect("/atis3/AE:o", getName("/AE:i"), "fast_tcp");
 
     cv::Mat temp = EROS_vis.getSurface();
-    eros_thread.initialise(temp, 19, cv::Rect(60, 150, 500, 80), 3000, &m2, n_trial, n_exp);
+    eros_thread.initialise(temp, 19, cv::Rect(60, 150, 500, 80), 300, &m2, n_trial, n_exp, &m_pim, &pim_vis);
     eros_thread.start();
 
 //    pause = false;
@@ -95,7 +95,7 @@ void puckPosModule::run() {
     double time_offset = -1.0;
     ev::info read_stats = input_port.readChunkN(1);
     if(input_port.isStopping()) return;
-    time_offset = input_port.begin().packetTime();
+    time_offset = input_port.begin().timestamp();
     eros_thread.setFirstTime(time_offset);
 
     while (Thread::isRunning()) {
@@ -115,7 +115,7 @@ void puckPosModule::run() {
            // eros_thread.setCurrentTime(a.packetTime());
         }
         m_pim.unlock();
-        eros_thread.setLatencyTime(input_port.getUnprocessedDelay());
+        eros_thread.setLatencyTime(input_port.stats_unprocessed().duration);
 
 
 
@@ -144,7 +144,7 @@ bool puckPosModule::updateModule() {
     static cv::Mat floater(480, 640, CV_32F);
     m_pim.lock();
     pim_vis.temporalDecay(Time::now());
-    pim_vis.spatialDecay(3);
+//    pim_vis.spatialDecay(3);
     pim_vis.getSurface().copyTo(floater);
     m_pim.unlock();
 
@@ -218,10 +218,12 @@ void puckPosModule::onStop() {
     input_port.stop();
 }
 
-void asynch_thread::initialise(cv::Mat &eros, int init_filter_width, cv::Rect roi, double thresh, std::mutex *m2, int n_trial, int n_exp)
+void asynch_thread::initialise(cv::Mat &eros, int init_filter_width, cv::Rect roi, double thresh, std::mutex *m2, int n_trial, int n_exp, std::mutex *pim_mutex, PIM *pim)
 {
     this->eros = eros; //shallow copy (i.e. pointer)
     this->m2=m2;
+    this->pim_mutex=pim_mutex;
+    this->pim_vis=pim;
 
     detector.initialize(init_filter_width, roi, thresh); // create and visualize filter for detection phase
     tracker.initKalmanFilter();
@@ -291,57 +293,52 @@ void asynch_thread::run() {
     bool first_detection=true;
     setStatus(0);
 
+    static cv::Mat floater(480, 640, CV_32F);
+
     while(!isStopping())
     {
-        eros.copyTo(temp);
-        cv::GaussianBlur(temp, eros_filtered, cv::Size(5, 5), 0);
+
+        pim_mutex->lock();
+        pim_vis->temporalDecay(Time::now());
+//    pim_vis.spatialDecay(3);
+        pim_vis->getSurface().copyTo(floater);
+        pim_mutex->unlock();
 
         // --- DETECTION PHASE ----
         m2->lock();
-//        if (!getStatus())
-//        {
-//            if(detector.detect(eros_filtered)){
-////                setStatus(1);
-//                tracker.resetKalman(detector.getDetection(), detector.getSize());
-//                if(first_detection==true){
-//                    detection_time = getCurrentTime();
-//                    yInfo()<<"x="<<detector.getDetection().x<<",y="<<detector.getDetection().y<<",ts="<<detection_time-getFirstTime();
-//                    file<<detection_time-getFirstTime()<<" "<<detector.getDetection().x<<" "<<detector.getDetection().y<<" 0 0 0 0"<<endl;
-//                    first_detection=false;
-//                }
-////                yInfo()<<"first detected = ("<<detector.getDetection().x<<","<<detector.getDetection().y<<")";
-//            }
-//        }
-//        // ---- TRACKING PHASE ----
-//        else{
-//
-//            // UPDATE RATE
-//            double dT = yarp::os::Time::now() - tic;
-//            tic += dT;
-//            double eros_time_before= getCurrentTime();
-////            yInfo() << "Running at a cool " << 1.0 / dT << "Hz";
-//            puck_pos = tracker.track(eros_filtered, dT);
-//            double eros_time_after = getCurrentTime();
-//
-//            double eros_diff_time = eros_time_after-eros_time_before;
-////            yInfo()<<latency;
-//
-////            yInfo()<<getLatencyTime();
-//
-//            file<<(getCurrentTime()-getFirstTime())<<" "<<puck_pos.x<<" "<<puck_pos.y<<" "<<getLatencyTime()+eros_diff_time<<" "<<1.0 / dT<<" "<<tracker.get_convROI().width<<" "<<tracker.get_convROI().height<<endl;
-//
-////            if (puck_pos.x<=3){
-////                setStatus(0);
-////            }
-//
-////            if(detector.detect(eros_filtered)){
-////                setStatus(1);
-////                tracker.resetKalman(detector.getDetection(), detector.getSize());
-////                detection_time = yarp::os::Time::now();
-//////                yInfo()<<"first detected = ("<<detector.getDetection().x<<","<<detector.getDetection().y<<")";
-////            }
-//
-//        }
+        if (!getStatus())
+        {
+            if(detector.detect(floater)){
+                setStatus(1);
+                tracker.resetKalman(detector.getDetection(), detector.getSize());
+                if(first_detection==true){
+                    detection_time = getCurrentTime();
+                    yInfo()<<"x="<<detector.getDetection().x<<",y="<<detector.getDetection().y<<",ts="<<detection_time-getFirstTime();
+                    file<<detection_time-getFirstTime()<<" "<<detector.getDetection().x<<" "<<detector.getDetection().y<<" 0 0 0 0"<<endl;
+                    first_detection=false;
+                }
+//                yInfo()<<"first detected = ("<<detector.getDetection().x<<","<<detector.getDetection().y<<")";
+            }
+        }
+        // ---- TRACKING PHASE ----
+        else{
+
+            // UPDATE RATE
+            double dT = yarp::os::Time::now() - tic;
+            tic += dT;
+            double eros_time_before= getCurrentTime();
+//            yInfo() << "Running at a cool " << 1.0 / dT << "Hz";
+            puck_pos = tracker.track(floater, dT);
+            double eros_time_after = getCurrentTime();
+
+            double eros_diff_time = eros_time_after-eros_time_before;
+//            yInfo()<<latency;
+
+//            yInfo()<<getLatencyTime();
+
+            file<<(getCurrentTime()-getFirstTime())<<" "<<puck_pos.x<<" "<<puck_pos.y<<" "<<getLatencyTime()+eros_diff_time<<" "<<1.0 / dT<<" "<<tracker.get_convROI().width<<" "<<tracker.get_convROI().height<<endl;
+
+        }
         m2->unlock();
     }
 
