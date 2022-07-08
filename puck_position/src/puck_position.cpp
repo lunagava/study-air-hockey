@@ -33,7 +33,6 @@ bool puckPosModule::configure(yarp::os::ResourceFinder& rf) {
     n_exp = rf.check("n_exp", Value(1)).asInt();
 
     // module name
-    setName((rf.check("name", Value("/puck_position")).asString()).c_str());
 
     if (!input_port.open(getName() + "/AE:i"))
         return false;
@@ -50,7 +49,6 @@ bool puckPosModule::configure(yarp::os::ResourceFinder& rf) {
 
     cv::Mat temp = EROS_vis.getSurface();
     eros_thread.initialise(temp, 19, cv::Rect(60, 150, 500, 80), 3000, &m2, n_trial, n_exp);
-    eros_thread.start();
 
 //    pause = false;
 
@@ -94,10 +92,11 @@ bool puckPosModule::configure(yarp::os::ResourceFinder& rf) {
         return false;
     }
 
-    return Thread::start();
+    return true;
 }
 
 void puckPosModule::run() {
+    yInfo() << "RUN";
 
     double time_offset = -1.0;
     ev::info read_stats = input_port.readAll(true);
@@ -106,14 +105,14 @@ void puckPosModule::run() {
 //    yInfo()<<time_offset;
     eros_thread.setFirstTime(time_offset);
 
-    while (Thread::isRunning()) {
+    while (!isStopping) {
 
         ev::info my_info = input_port.readAll(true);
         if(input_port.isStopping())
             break;
         eros_thread.setCurrentTime(my_info.timestamp);
 //        int count = 0;
-//        yInfo()<<my_info.count;
+        yInfo()<<my_info.count<<my_info.timestamp<<my_info.duration;
         for(auto a = input_port.begin(); a != input_port.end(); a++) {
             EROS_vis.update((*a).x, (*a).y);
 
@@ -144,18 +143,19 @@ double puckPosModule::getPeriod() {
 }
 
 bool puckPosModule::updateModule() {
-
+    yInfo() << "UPDATE";
+    while(!isStopping) {
 //    cv::waitKey(1);
-    char key = 0;
-    m2.lock();
+        char key = 0;
+        m2.lock();
 
-    cv::Mat eros_bgr, eros_filtered;
-    cv::Mat eros_surface = EROS_vis.getSurface();
-    cv::cvtColor(eros_surface, eros_bgr, cv::COLOR_GRAY2BGR);
+        cv::Mat eros_bgr, eros_filtered;
+        cv::Mat eros_surface = EROS_vis.getSurface();
+        cv::cvtColor(eros_surface, eros_bgr, cv::COLOR_GRAY2BGR);
 
-    cv::Point puck_position = eros_thread.getState();
-    cv::Rect puck_roi = eros_thread.getTrackROI();
-    cv::Point  puck_init = eros_thread.getInitPos();
+        cv::Point puck_position = eros_thread.getState();
+        cv::Rect puck_roi = eros_thread.getTrackROI();
+        cv::Point puck_init = eros_thread.getInitPos();
 
 //    yInfo()<<puck_position.x<<" "<<puck_position.y;
 //    cv::circle(eros_bgr, puck_position,5, cv::Scalar(180,119,31), cv::FILLED);
@@ -165,36 +165,38 @@ bool puckPosModule::updateModule() {
 //    if(!eros_thread.getStatus())
 //        cv::rectangle(eros_bgr, cv::Point(60, 150), cv::Point(560, 220), cv::Scalar(255,127,0), 3);
 
-    cv::GaussianBlur(eros_bgr, eros_filtered, cv::Size(5, 5), 0);
+        cv::GaussianBlur(eros_bgr, eros_filtered, cv::Size(5, 5), 0);
 
-    cv::imshow("FINAL TRACK", eros_filtered);
+        cv::imshow("FINAL TRACK", eros_filtered);
 //    cv::waitKey(1);
 
-    key = cv::waitKey(1);
-    m2.unlock();
+        key = cv::waitKey(1);
+        m2.unlock();
 
-    if (key == 'p'){  // press p to pause
-        pause = !pause;
-        if(pause)
-            m.try_lock();
-        else
+        if (key == 'p') {  // press p to pause
+            pause = !pause;
+            if (pause)
+                m.try_lock();
+            else
+                m.unlock();
+        } else if (key == 'n') { // next
             m.unlock();
-    }
-    else if(key == 'n'){ // next
-        m.unlock();
-    }
-    else if(key==32){
-        eros_thread.setStatus(0);
-    }
+        } else if (key == 32) {
+            eros_thread.setStatus(0);
+        }
 
 //    yInfo()<<"UPDATE MODULE";
-
-    return Thread::isRunning();
+        usleep((getPeriod() - std::fmod(clock(), getPeriod())) * 1e-6);
+    }
+    return true;
 }
 
 bool puckPosModule::interruptModule() {
     eros_thread.stop();
-    return Thread::stop();
+    isStopping = true;
+//    synch_thread.join();
+//    read_evs_thread.join();
+    return true;
 }
 
 void puckPosModule::onStop() {
@@ -212,6 +214,15 @@ void puckPosModule::onStop() {
     input_port.stop();
 }
 
+bool puckPosModule::runModule(ResourceFinder &rf) {
+//    configure(rf);
+//    read_evs_thread = std::thread(&puckPosModule::run, this);
+//    synch_thread = std::thread(&puckPosModule::updateModule, this);
+//    read_evs_thread.join();
+//    synch_thread.join();
+    return true;
+}
+
 void asynch_thread::initialise(cv::Mat &eros, int init_filter_width, cv::Rect roi, double thresh, std::mutex *m2, int n_trial, int n_exp)
 {
     this->eros = eros; //shallow copy (i.e. pointer)
@@ -221,6 +232,8 @@ void asynch_thread::initialise(cv::Mat &eros, int init_filter_width, cv::Rect ro
     tracker.initKalmanFilter();
 
     file_closed=true;
+
+    computationThread = std::thread(&asynch_thread::run, this);
 
 //    first_instant = yarp::os::Time::now();
 
@@ -294,7 +307,7 @@ void asynch_thread::run() {
     bool first_detection=true;
     setStatus(0);
 
-    while(!isStopping())
+    while(!isStopping)
     {
         eros.copyTo(temp);
         cv::GaussianBlur(temp, eros_filtered, cv::Size(5, 5), 0);
@@ -371,6 +384,14 @@ int main(int argc, char *argv[]) {
     /* create the module */
     puckPosModule puckpos;
 
+    puckpos.configure(rf);
+    std::thread read_evs_thread = std::thread(&puckPosModule::run, &puckpos);
+//    std::thread synch_thread = std::thread(&puckPosModule::updateModule, &puckpos);
+    read_evs_thread.join();
+//    synch_thread.join();
+
+
+    return 0;
     /* run the module: runModule() calls configure first and, if successful, it then runs */
-    return puckpos.runModule(rf);
+//    return puckpos.runModule(rf);
 }

@@ -550,7 +550,7 @@ public:
 
 };
 
-class asynch_thread:public Thread{
+class asynch_thread {
 
 private:
     cv::Mat eros;
@@ -565,8 +565,8 @@ private:
     double first_instant, startLat, startTime, currentTime, latTime;
     int n_seq;
     bool file_closed;
-
-protected:
+    std::thread computationThread;
+    bool isStopping{false};
 
 
 public:
@@ -589,9 +589,10 @@ public:
     double getNumberEvents();
     cv::Rect getTrackROI();
     cv::Point getInitPos();
+    void stop(){ isStopping = true; computationThread.join();}
 };
 
-class puckPosModule:public RFModule, public Thread{
+class puckPosModule {
 
 private:
 
@@ -609,6 +610,9 @@ private:
     yarp::sig::ImageOf<yarp::sig::PixelBgr> puckMap;
 
     asynch_thread eros_thread;
+//    std::thread read_evs_thread;
+//    std::thread synch_thread;
+    bool isStopping{false};
 
 protected:
 
@@ -619,11 +623,13 @@ public:
 
     //the virtual functions that need to be overloaded
 
-    virtual bool configure(yarp::os::ResourceFinder &rf);
-    virtual bool interruptModule();
-    virtual void onStop();
-    virtual double getPeriod();
-    virtual bool updateModule();
+    bool configure(yarp::os::ResourceFinder &rf);
+    bool runModule(yarp::os::ResourceFinder &rf);
+    bool interruptModule();
+    void onStop();
+    double getPeriod();
+    bool updateModule();
+    std::string getName(std::string postfix=""){ return "/puck_position" + postfix;}
 
     void run();
 
