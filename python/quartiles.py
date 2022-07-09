@@ -57,8 +57,46 @@ colors = ['tab:blue', 'tab:orange', 'tab:green', 'tab:blue', 'tab:orange', 'tab:
 for patch, color in zip(bplot['boxes'], colors):
     patch.set_facecolor(color)
 plt.yscale("log")
-plt.ylabel("Error quartiles [pxl]")
+plt.ylabel("Error quartiles [pxl]", color='k')
 plt.show()
+
+quart_vec=[PUCK_static, PF_static, CL_static, PUCK_moving, PF_moving, CL_moving]
+
+fig, ax1 = plt.subplots()
+algs = ['PUCK', 'PF', 'CL']
+ax1.set_ylabel('Error quartiles', color='k')
+res1 = ax1.boxplot(positions=np.arange(6), x=[PUCK_static, PF_static, CL_static, PUCK_moving, PF_moving, CL_moving], showfliers=False,
+                    patch_artist=True, medianprops=medianprops)
+plt.yscale("log")
+for element in ['boxes', 'whiskers', 'fliers', 'means', 'medians', 'caps']:
+    plt.setp(res1[element], color='k')
+
+colors = ['tab:blue', 'tab:orange', 'tab:green', 'tab:blue', 'tab:orange', 'tab:green']
+for patch, color in zip(res1['boxes'], colors):
+    patch.set_facecolor(color)
+
+PF_time_to_fail_static=1
+CL_time_to_fail_static=6.6
+PF_time_to_fail_moving=4
+CL_time_to_fail_moving=5
+width = 0.4
+ax2 = ax1.twinx()  # instantiate a second axes that shares the same x-axis
+ax2.set_ylabel('Time to failure', color='k')
+rects1 = ax2.bar(6, PF_time_to_fail_static, width,  color='tab:orange')
+rects2 = ax2.bar(7, CL_time_to_fail_static, width, color='tab:green')
+rects3 = ax2.bar(8, PF_time_to_fail_moving, width,  color='tab:orange')
+rects4 = ax2.bar(9, CL_time_to_fail_moving, width, color='tab:green')
+# plt.xticks([6, 7, 8], labels, rotation=45)
+# ax2.bar(6, time_to_fail_vec, 0.4, align='center', color='tab:blue', ecolor='k',edgecolor='black', alpha=0.5, capsize=10)
+
+ax1.set_xlim([-0.55, 9.55])
+ax1.set_xticks(np.arange(10))
+labels = ['PUCK static', 'PF static', 'CL static', 'PUCK moving', 'PF moving', 'CL moving', 'PF static', 'CL static', 'PF moving', 'CL moving']
+ax1.set_xticklabels(labels, rotation=90)
+
+fig.tight_layout()  # otherwise the right y-label is slightly clipped
+plt.show()
+
 
 live_test_path = "../../../../data/iros_datasets/live_test"
 live_test_files = sorted([traj for traj in os.listdir(os.path.join(os.path.dirname(os.path.abspath(__file__)), live_test_path)) if traj.endswith('.txt')])
@@ -162,3 +200,21 @@ plt.show()
 #     patch.set_facecolor(color)
 # plt.yscale("log")
 # plt.show()
+
+cameras = ['Frame-based camera', 'Event-camera']
+
+mean_frame_lat = 93
+mean_event_lat = 10
+std_frame_lat = 3.5
+std_event_lat = 0.15
+
+fig5, ax5 = plt.subplots()
+rects1 = ax5.bar(0, mean_frame_lat, yerr=std_frame_lat, width=0.5, color='tab:olive')
+rects2 = ax5.bar(1, mean_event_lat, yerr=std_event_lat, width=0.5, color='tab:cyan')
+
+# Add some text for labels, title and custom x-axis tick labels, etc.
+ax5.set_ylabel('Sensor Latency [ms]')
+# ax.set_xlabel('\n Algorithm')
+plt.xticks([0, 1], cameras)
+
+plt.show()
