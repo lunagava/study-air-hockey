@@ -555,6 +555,8 @@ PUCK_path = "../../../../data/iros_datasets/exp"+str(exp_number)+"/Ours_2"
 GT_path = "../../../../data/iros_datasets/exp"+str(exp_number)+"/GT_2"
 PF_path = "../../../../data/iros_datasets/exp"+str(exp_number)+"/vPFT_2"
 CL_path = "../../../../data/iros_datasets/exp"+str(exp_number)+"/vCluster_2"
+PIM_path = "../../../../data/iros_datasets/exp"+str(exp_number)+"/PIM"
+TOS_path = "../../../../data/iros_datasets/exp"+str(exp_number)+"/TOS"
 
 PUCK_files = sorted([traj for traj in os.listdir(os.path.join(os.path.dirname(os.path.abspath(__file__)), PUCK_path)) if traj.endswith('.txt')])
 GT_files = sorted([traj for traj in os.listdir(os.path.join(os.path.dirname(os.path.abspath(__file__)), GT_path)) if traj.endswith('.txt')])
@@ -566,9 +568,13 @@ PUCK_list = []
 GT_list = []
 PF_list = []
 CL_list = []
+PIM_list = []
+TOS_list = []
 PUCK_latency = []
 PF_latency = []
 CL_latency = []
+TOS_latency = []
+PIM_latency = []
 
 GT_row = 0
 GT_column = 0
@@ -578,6 +584,10 @@ PF_row = 0
 PF_column = 0
 CL_row = 0
 CL_column = 0
+PIM_row = 0
+PIM_column = 0
+TOS_row = 0
+TOS_column = 0
 
 fig1, axs1 = plt.subplots(5, 4)
 fig2, axs2 = plt.subplots(5, 4)
@@ -652,6 +662,28 @@ for t in tqdm(CL_files, "Loading vCluster trajectories..."):
     if CL_column % 4 == 0 and CL_column != 0:
         CL_row += 1
         CL_column = 0
+
+for t in tqdm(CL_files, "Loading vTOS trajectories..."):
+    TOS_trajs = np.loadtxt(os.path.join(TOS_path, t), delimiter=" ")[:, :4]
+    TOS_number = int(re.findall("\d+", t)[0])
+    TOS_trajs = np.delete(TOS_trajs, (0), axis=0)
+    TOS_list.append(TOS_trajs)
+    TOS_latency.append(TOS_trajs[:, 3])
+    TOS_column += 1
+    if TOS_column % 4 == 0 and TOS_column != 0:
+        TOS_row += 1
+        TOS_column = 0
+
+for t in tqdm(CL_files, "Loading vPIM trajectories..."):
+    PIM_trajs = np.loadtxt(os.path.join(PIM_path, t), delimiter=" ")[:, :4]
+    PIM_number = int(re.findall("\d+", t)[0])
+    PIM_trajs = np.delete(PIM_trajs, (0), axis=0)
+    PIM_list.append(PIM_trajs)
+    PIM_latency.append(PIM_trajs[:, 3])
+    PIM_column += 1
+    if PIM_column % 4 == 0 and PIM_column != 0:
+        PIM_row += 1
+        PIM_column = 0
 
 # X and Y Position COMPARISON PUCK vs GT
 plt.setp(axs1[-1, :], xlabel='Time [s]')
@@ -783,6 +815,18 @@ for gt_seq in GT_list:
                 calc_distance(CL_list[track_seq][CL_min_index, 1], CL_list[track_seq][CL_min_index, 2],
                               gt_seq[j, 1], gt_seq[j, 2]))
             CL_error_time.append(gt_seq[j, 0])
+
+        if PIM_min_time_diff < time_th:
+            PIM_error_moving.append(
+                calc_distance(PIM_list[track_seq][CL_min_index, 1], PIM_list[track_seq][PIM_min_index, 2],
+                              gt_seq[j, 1], gt_seq[j, 2]))
+            PIM_error_time.append(gt_seq[j, 0])
+
+        if TOS_min_time_diff < time_th:
+            TOS_error_moving.append(
+                calc_distance(TOS_list[track_seq][CL_min_index, 1], TOS_list[track_seq][TOS_min_index, 2],
+                              gt_seq[j, 1], gt_seq[j, 2]))
+            TOS_error_time.append(gt_seq[j, 0])
 
             # error.append(abs(track_list[track_seq][min_index, 1]-gt_seq[j,1]))
 
