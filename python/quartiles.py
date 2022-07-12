@@ -218,3 +218,39 @@ ax5.set_ylabel('Sensor Latency [ms]')
 plt.xticks([0, 1], cameras)
 
 plt.show()
+
+PUCK_mean_lat = 0.01
+PF_mean_lat = 0.03
+CL_mean_lat = 0.0001
+PIM_mean_lat = 0.001
+TOS_mean_lat = 0.01
+
+lab_alg = ["PUCK", "PF", "CL", "PIM", "TOS"]
+
+fig, ax = plt.subplots()
+rects1 = ax.bar(0, PUCK_mean_lat, width,  color='tab:blue')
+rects2 = ax.bar(1, PF_mean_lat, width, color='tab:orange')
+rects3 = ax.bar(2, CL_mean_lat, width, color='tab:green')
+rects4 = ax.bar(3, PIM_mean_lat, width,  color='tab:purple')
+rects5 = ax.bar(4, TOS_mean_lat, width, color='tab:red')
+
+# Add some text for labels, title and custom x-axis tick labels, etc.
+ax.set_ylabel('Mean Latency [s]')
+plt.xticks([0, 1, 2, 3, 4], lab_alg, rotation=45)
+plt.yscale("log")
+# plt.ylim([0,np.power(10,-2)])
+
+# ax.set_title('Latency')
+# ax.set_xticks(live_trials, labels
+
+# ax.legend()
+
+ax.bar_label(rects1, padding=3)
+ax.bar_label(rects2, padding=3)
+ax.bar_label(rects3, padding=3)
+ax.bar_label(rects4, padding=3)
+ax.bar_label(rects5, padding=3)
+
+fig.tight_layout()
+
+plt.show()
