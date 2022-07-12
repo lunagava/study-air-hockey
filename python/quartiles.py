@@ -74,26 +74,34 @@ for element in ['boxes', 'whiskers', 'fliers', 'means', 'medians', 'caps']:
 colors = ['tab:blue', 'tab:orange', 'tab:green', 'tab:blue', 'tab:orange', 'tab:green']
 for patch, color in zip(res1['boxes'], colors):
     patch.set_facecolor(color)
+ax1.set_xlim([-0.55, 9.55])
+ax1.set_xticks(np.arange(10))
+labels = ['PUCK static', 'PF static', 'CL static', 'PUCK moving', 'PF moving', 'CL moving', 'PF static', 'CL static', 'PF moving', 'CL moving']
+ax1.set_xticklabels(labels, rotation=90)
+plt.show()
 
+fig, ax2 = plt.subplots()
 PF_time_to_fail_static=1
 CL_time_to_fail_static=6.6
 PF_time_to_fail_moving=4
 CL_time_to_fail_moving=5
 width = 0.4
-ax2 = ax1.twinx()  # instantiate a second axes that shares the same x-axis
 ax2.set_ylabel('Time to failure', color='k')
-rects1 = ax2.bar(6, PF_time_to_fail_static, width,  color='tab:orange')
-rects2 = ax2.bar(7, CL_time_to_fail_static, width, color='tab:green')
-rects3 = ax2.bar(8, PF_time_to_fail_moving, width,  color='tab:orange')
-rects4 = ax2.bar(9, CL_time_to_fail_moving, width, color='tab:green')
+plt.plot(10,600,marker='x', color='tab:blue')
+plt.plot(30,600,marker='x', color='tab:blue')
+rects1 = ax2.bar(0, PF_time_to_fail_static, width,  color='tab:orange')
+rects2 = ax2.bar(1, CL_time_to_fail_static, width, color='tab:green')
+rects3 = ax2.bar(2, PF_time_to_fail_moving, width,  color='tab:orange')
+rects4 = ax2.bar(3, CL_time_to_fail_moving, width, color='tab:green')
+rects5 = ax2.bar(4, PIM_time_to_fail_static, width,  color='tab:purple')
+rects6 = ax2.bar(5, TOS_time_to_fail_static, width, color='tab:red')
+rects7 = ax2.bar(6, PIM_time_to_fail_moving, width,  color='tab:purple')
+rects8 = ax2.bar(7, TOS_time_to_fail_moving, width, color='tab:red')
 # plt.xticks([6, 7, 8], labels, rotation=45)
 # ax2.bar(6, time_to_fail_vec, 0.4, align='center', color='tab:blue', ecolor='k',edgecolor='black', alpha=0.5, capsize=10)
 
-ax1.set_xlim([-0.55, 9.55])
-ax1.set_xticks(np.arange(10))
 labels = ['PUCK static', 'PF static', 'CL static', 'PUCK moving', 'PF moving', 'CL moving', 'PF static', 'CL static', 'PF moving', 'CL moving']
-ax1.set_xticklabels(labels, rotation=90)
-
+ax2.set_xticklabels(labels, rotation=90)
 fig.tight_layout()  # otherwise the right y-label is slightly clipped
 plt.show()
 
