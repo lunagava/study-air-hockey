@@ -27,10 +27,10 @@ using namespace std;
 bool puckPosModule::configure(yarp::os::ResourceFinder& rf) {
 
     // options and parameters
-    w = rf.check("w", Value(640)).asInt();
-    h = rf.check("h", Value(480)).asInt();
-    n_trial = rf.check("n_trial", Value(1)).asInt();
-    n_exp = rf.check("n_exp", Value(1)).asInt();
+    w = rf.check("w", Value(640)).asInt64();
+    h = rf.check("h", Value(480)).asInt64();
+    n_trial = rf.check("n_trial", Value(1)).asInt64();
+    n_exp = rf.check("n_exp", Value(1)).asInt64();
 
     // module name
     setName((rf.check("name", Value("/puck_position")).asString()).c_str());
@@ -86,13 +86,13 @@ bool puckPosModule::configure(yarp::os::ResourceFinder& rf) {
 
     yarp::os::Network::connect(getName("/image:o"), "/puckView", "fast_tcp");
 
-    file.open("/data/iros_datasets/live_test/puck"+std::to_string(n_trial)+".txt");
-
-    if (!file.is_open())
-    {
-        yError()<<"Could not open file for kalman prediction and correction";
-        return false;
-    }
+//    file.open("/data/iros_datasets/live_test/puck"+std::to_string(n_trial)+".txt");
+//
+//    if (!file.is_open())
+//    {
+//        yError()<<"Could not open file for kalman prediction and correction";
+//        return false;
+//    }
 
     return Thread::start();
 }
@@ -104,14 +104,14 @@ void puckPosModule::run() {
     if(input_port.isStopping()) return;
     time_offset = read_stats.timestamp;
 //    yInfo()<<time_offset;
-    eros_thread.setFirstTime(time_offset);
+    eros_thread.setFirstTime(yarp::os::Time::now());
 
     while (Thread::isRunning()) {
 
         ev::info my_info = input_port.readAll(true);
         if(input_port.isStopping())
             break;
-        eros_thread.setCurrentTime(my_info.timestamp);
+        eros_thread.setCurrentTime(yarp::os::Time::now());
 //        int count = 0;
 //        yInfo()<<my_info.count;
         for(auto a = input_port.begin(); a != input_port.end(); a++) {
@@ -199,14 +199,14 @@ bool puckPosModule::interruptModule() {
 
 void puckPosModule::onStop() {
 
-    if(file.is_open())
-    {
-        yInfo() << "Writing data";
-        for(auto i : eros_thread.data_to_save)
-            file << setprecision(2) << i[0] << " " << i[1] << " " << i[2] << " " << i[3] << " "<<i[4]<< " "<<i[5]<<" "<<i[6]<<" "<<i[7]<<" "<<i[8]<<" "<<i[9]<<std::endl;
-        file.close();
-        yInfo() << "Finished Writing data";
-    }
+//    if(file.is_open())
+//    {
+//        yInfo() << "Writing data";
+//        for(auto i : eros_thread.data_to_save)
+//            file << setprecision(2) << i[0] << " " << i[1] << " " << i[2] << " " << i[3] << " "<<i[4]<< " "<<i[5]<<" "<<i[6]<<" "<<i[7]<<" "<<i[8]<<" "<<i[9]<<std::endl;
+//        file.close();
+//        yInfo() << "Finished Writing data";
+//    }
 
     eros_thread.stop();
     input_port.stop();
@@ -224,14 +224,14 @@ void asynch_thread::initialise(cv::Mat &eros, int init_filter_width, cv::Rect ro
 
 //    first_instant = yarp::os::Time::now();
 
-//    file.open("/data/iros_datasets/exp"+std::to_string(n_exp)+"/Ours/Ours"+std::to_string(n_trial)+".txt");
+    file.open("/data/iros_datasets/exp"+std::to_string(n_exp)+"/TOS/TOS"+std::to_string(n_trial)+".txt");
 //    file.open("/data/iros_datasets/live_test/puck"+std::to_string(n_trial)+".txt");
 //
-//    if (!file.is_open())
-//    {
-//        yError()<<"Could not open file for kalman prediction and correction";
-//        return;
-//    }
+    if (!file.is_open())
+    {
+        yError()<<"Could not open file for kalman prediction and correction";
+        return;
+    }
 
 }
 
@@ -301,6 +301,7 @@ void asynch_thread::run() {
 
         // --- DETECTION PHASE ----
         m2->lock();
+        yInfo()<<getCurrentTime()<<getFirstTime()<<getCurrentTime()-getFirstTime();
         if (!getStatus())
         {
             if(detector.detect(eros_filtered)){
@@ -310,7 +311,8 @@ void asynch_thread::run() {
                     yarp_detection_time = yarp::os::Time::now();
                     detection_time = getCurrentTime();
                     yInfo()<<"x="<<detector.getDetection().x<<",y="<<detector.getDetection().y<<",ts="<<detection_time-getFirstTime();
-                    data_to_save.push_back({yarp::os::Time::now()-tic, detection_time-getFirstTime(), double(detector.getDetection().x), double(detector.getDetection().y), 0.0, 0.0, 0.0, 30.0, 19.0});
+                    file<<getCurrentTime()-getFirstTime()<<" "<<detector.getDetection().x<<" "<<detector.getDetection().y<<" 0 0 0 0"<<endl;
+//                    data_to_save.push_back({yarp::os::Time::now()-tic, detection_time-getFirstTime(), double(detector.getDetection().x), double(detector.getDetection().y), 0.0, 0.0, 0.0, 30.0, 19.0});
                     first_detection=false;
                 }
 //                yInfo()<<"first detected = ("<<detector.getDetection().x<<","<<detector.getDetection().y<<")";
@@ -332,7 +334,9 @@ void asynch_thread::run() {
 
 //            yInfo()<<"get="<<getLatencyTime();
 
-            data_to_save.push_back({getNumberEvents(), yarp::os::Time::now()-yarp_detection_time,getCurrentTime()-getFirstTime(),double(puck_pos.x),double(puck_pos.y),getLatencyTime(),eros_diff_time,dT,double(tracker.get_convROI().width),double(tracker.get_convROI().height)});
+            file<<(getCurrentTime()-getFirstTime())<<" "<<puck_pos.x<<" "<<puck_pos.y<<" "<<getLatencyTime()+eros_diff_time<<" "<<1.0 / dT<<" "<<tracker.get_convROI().width<<" "<<tracker.get_convROI().height<<endl;
+
+//            data_to_save.push_back({getNumberEvents(), yarp::os::Time::now()-yarp_detection_time,getCurrentTime()-getFirstTime(),double(puck_pos.x),double(puck_pos.y),getLatencyTime(),eros_diff_time,dT,double(tracker.get_convROI().width),double(tracker.get_convROI().height)});
 
 
 

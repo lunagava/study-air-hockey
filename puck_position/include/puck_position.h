@@ -565,6 +565,7 @@ private:
     double first_instant, startLat, startTime, currentTime, latTime;
     int n_seq;
     bool file_closed;
+    ofstream file;
 
 protected:
 
