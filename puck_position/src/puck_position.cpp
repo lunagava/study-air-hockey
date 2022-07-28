@@ -31,6 +31,9 @@ bool puckPosModule::configure(yarp::os::ResourceFinder& rf) {
     h = rf.check("h", Value(480)).asInt64();
     n_trial = rf.check("n_trial", Value(1)).asInt64();
     n_exp = rf.check("n_exp", Value(1)).asInt64();
+    startX = rf.check("xstart", yarp::os::Value(96)).asFloat64();
+    startY = rf.check("ystart", yarp::os::Value(214)).asFloat64();
+    startTime = rf.check("tstart", yarp::os::Value(0.76496)).asFloat64();
 
     // module name
     setName((rf.check("name", Value("/puck_position")).asString()).c_str());
@@ -43,7 +46,7 @@ bool puckPosModule::configure(yarp::os::ResourceFinder& rf) {
         return false;
     }
 
-    EROS_vis.init(w, h, 7, 0.1);
+    EROS_vis.init(w, h, 7, 2);
 //    EROS_vis.init(w, h, 5, 0.3);
 
     yarp::os::Network::connect("/atis3/AE:o", getName("/AE:i"), "fast_tcp");
@@ -94,29 +97,33 @@ bool puckPosModule::configure(yarp::os::ResourceFinder& rf) {
 //        return false;
 //    }
 
+    eros_thread.setStarted(false);
+
     return Thread::start();
 }
 
 void puckPosModule::run() {
 
     double time_offset = -1.0;
-    ev::info read_stats = input_port.readAll(true);
+    ev::info read_stats = input_port.readChunkN(1, true);
     if(input_port.isStopping()) return;
     time_offset = read_stats.timestamp;
 //    yInfo()<<time_offset;
     eros_thread.setFirstTime(yarp::os::Time::now());
+    eros_thread.setX(startX); eros_thread.setY(startY); eros_thread.setT(startTime);
 
     while (Thread::isRunning()) {
 
-        ev::info my_info = input_port.readAll(true);
+        ev::info my_info = input_port.readAll( true);
         if(input_port.isStopping())
             break;
         eros_thread.setCurrentTime(yarp::os::Time::now());
+        yInfo()<<my_info.duration<<my_info.count<<my_info.timestamp;
 //        int count = 0;
 //        yInfo()<<my_info.count;
         for(auto a = input_port.begin(); a != input_port.end(); a++) {
             EROS_vis.update((*a).x, (*a).y);
-
+            eros_thread.setStarted(true);
 //            count++;
 //            yarp::sig::PixelBgr &ePix = puckMap.pixel((*a).x,(*a).y);
 //            ePix.r = ePix.b = ePix.g = 255;
@@ -265,6 +272,38 @@ double asynch_thread::getLatencyTime(){
     return latTime;
 }
 
+void asynch_thread::setStarted(bool begin) {
+    this->eventsStarted=begin;
+}
+
+bool asynch_thread::getStarted(){
+    return eventsStarted;
+}
+
+void asynch_thread::setX(int x) {
+    this->startx=x;
+}
+
+int asynch_thread::getX(){
+    return startx;
+}
+
+void asynch_thread::setY(int y) {
+    this->starty=y;
+}
+
+int asynch_thread::getY(){
+    return starty;
+}
+
+void asynch_thread::setT(double t) {
+    this->startt=t;
+}
+
+double asynch_thread::getT(){
+    return startt;
+}
+
 void asynch_thread::setNumberEvents(double n_events) {
     this->nEvents=n_events;
 }
@@ -301,25 +340,27 @@ void asynch_thread::run() {
 
         // --- DETECTION PHASE ----
         m2->lock();
-        yInfo()<<getCurrentTime()<<getFirstTime()<<getCurrentTime()-getFirstTime();
-        if (!getStatus())
+//        yInfo()<<getCurrentTime()<<getFirstTime()<<getCurrentTime()-getFirstTime()<<getStarted();
+//        yInfo()<<getT() - (getCurrentTime()-getFirstTime());
+        if (getT() - (getCurrentTime()-getFirstTime()) < 0.009 && getT() - (getCurrentTime()-getFirstTime()) > 0.001 && getStarted()==true)
         {
-            if(detector.detect(eros_filtered)){
+//            if(detector.detect(eros_filtered)){
                 setStatus(1);
-                tracker.resetKalman(detector.getDetection(), detector.getSize());
+//                setStarted(false);
+                tracker.resetKalman(cv::Point(getX(), getY()), detector.getSize());
                 if(first_detection==true){
-                    yarp_detection_time = yarp::os::Time::now();
-                    detection_time = getCurrentTime();
-                    yInfo()<<"x="<<detector.getDetection().x<<",y="<<detector.getDetection().y<<",ts="<<detection_time-getFirstTime();
-                    file<<getCurrentTime()-getFirstTime()<<" "<<detector.getDetection().x<<" "<<detector.getDetection().y<<" 0 0 0 0"<<endl;
+                    detection_time = getCurrentTime()-getFirstTime();
+//                    yInfo()<<"x="<<detector.getDetection().x<<",y="<<detector.getDetection().y<<",ts="<<detection_time-getFirstTime();
+                    yInfo()<<getCurrentTime()-getFirstTime()<<" "<<getX()<<" "<<getY()<<" 0 0 0 0";
+                    file<<getCurrentTime()-getFirstTime()<<" "<<getX()<<" "<<getY()<<" 0 0 0 0"<<endl;
 //                    data_to_save.push_back({yarp::os::Time::now()-tic, detection_time-getFirstTime(), double(detector.getDetection().x), double(detector.getDetection().y), 0.0, 0.0, 0.0, 30.0, 19.0});
                     first_detection=false;
                 }
 //                yInfo()<<"first detected = ("<<detector.getDetection().x<<","<<detector.getDetection().y<<")";
-            }
+//            }
         }
         // ---- TRACKING PHASE ----
-        else{
+        else if (getStatus()){
 
             // UPDATE RATE
             double dT = yarp::os::Time::now() - tic;

@@ -508,21 +508,22 @@ public:
 //        if (puck_size%2 == 0)
 //            puck_size++;
 //
+
 //        if (puck_size<9)
 //            puck_size = 9;
 
 //        yInfo()<<puck_size;
 
         // static scenario params
-//        double a0,a1,a2,b0,b1,b2;
-//        a0 = 17.715624038044254 , a1 = 0.0035291125887034315 , a2 = 0.09579542600737656;
-//        b0 = 6.313115087846054 , b1 = 0.0022264258939534796 , b2 = 0.09551609558936817;
+        double a0,a1,a2,b0,b1,b2;
+        a0 = 17.715624038044254 , a1 = 0.0035291125887034315 , a2 = 0.09579542600737656;
+        b0 = 6.313115087846054 , b1 = 0.0022264258939534796 , b2 = 0.09551609558936817;
         // moving scenario params
-        double a0_moving,a1_moving,a2_moving,b0_moving,b1_moving,b2_moving;
-        a0_moving = 12.201650881598578 , a1_moving = 0.009735421154783392 , a2_moving = 0.09872367924641742;
-        b0_moving = 1.92477315662196 , b1_moving = 0.003209378102266541 , b2_moving = 0.09801072879753021;
-        double width = a0_moving+a1_moving*last_x+a2_moving*last_y;
-        double height = b0_moving+b1_moving*last_x+b2_moving*last_y;
+//        double a0_moving,a1_moving,a2_moving,b0_moving,b1_moving,b2_moving;
+//        a0_moving = 12.201650881598578 , a1_moving = 0.009735421154783392 , a2_moving = 0.09872367924641742;
+//        b0_moving = 1.92477315662196 , b1_moving = 0.003209378102266541 , b2_moving = 0.09801072879753021;
+        double width = a0+a1*last_x+a2*last_y;
+        double height = b0+b1*last_x+b2*last_y;
         height = 2 * floor(height/2) + 1;
         width = 2 * floor(width/2) + 1;
 
@@ -566,6 +567,9 @@ private:
     int n_seq;
     bool file_closed;
     ofstream file;
+    int startx, starty;
+    double startt;
+    bool eventsStarted;
 
 protected:
 
@@ -588,6 +592,14 @@ public:
     double getLatencyTime();
     void setNumberEvents(double n_events);
     double getNumberEvents();
+    void setX(int x);
+    int getX();
+    void setY(int y);
+    int getY();
+    void setT(double t);
+    double getT();
+    void setStarted(bool begin);
+    bool getStarted();
     cv::Rect getTrackROI();
     cv::Point getInitPos();
 };
@@ -600,10 +612,12 @@ private:
     int n_trial, n_exp;
     std::mutex m, m2;
     int w, h;
-    ev::EROS EROS_vis;
+    ev::TOS EROS_vis;
     double start_time_latency;
     int save,seq;
     ofstream file;
+    int startX, startY;
+    double startTime;
 
     ev::window<ev::AE> input_port;
     yarp::os::BufferedPort <yarp::sig::ImageOf<yarp::sig::PixelBgr> > image_out;
