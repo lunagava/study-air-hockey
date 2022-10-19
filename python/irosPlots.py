@@ -158,24 +158,28 @@ plt.style.use(params)
 
 exp_number = 1
 
-PUCK_path = "../../../../data/iros_datasets/exp"+str(exp_number)+"/Ours"
+PUCK_path = "../../../../data/iros_datasets/exp"+str(exp_number)+"/Ours2"
 GT_path = "../../../../data/iros_datasets/exp"+str(exp_number)+"/GT"
-PF_path = "../../../../data/iros_datasets/exp"+str(exp_number)+"/vPFT/"
-CL_path = "../../../../data/iros_datasets/exp"+str(exp_number)+"/vCluster"
+PF_path = "../../../../data/iros_datasets/exp"+str(exp_number)+"/vPFT2"
+CL_path = "../../../../data/iros_datasets/exp"+str(exp_number)+"/vCluster2"
+TOS_path = "../../../../data/iros_datasets/exp"+str(exp_number)+"/TOS"
 
 PUCK_files = sorted([traj for traj in os.listdir(os.path.join(os.path.dirname(os.path.abspath(__file__)), PUCK_path)) if traj.endswith('.txt')])
 GT_files = sorted([traj for traj in os.listdir(os.path.join(os.path.dirname(os.path.abspath(__file__)), GT_path)) if traj.endswith('.txt')])
 PF_files = sorted([traj for traj in os.listdir(os.path.join(os.path.dirname(os.path.abspath(__file__)), PF_path)) if traj.endswith('.txt')])
 CL_files = sorted([traj for traj in os.listdir(os.path.join(os.path.dirname(os.path.abspath(__file__)), CL_path)) if traj.endswith('.txt')])
+TOS_files = sorted([traj for traj in os.listdir(os.path.join(os.path.dirname(os.path.abspath(__file__)), TOS_path)) if traj.endswith('.txt')])
 
 detection = []
 PUCK_list = []
 GT_list = []
 PF_list = []
 CL_list = []
+TOS_list = []
 PUCK_latency = []
 PF_latency = []
 CL_latency = []
+TOS_latency = []
 
 GT_row = 0
 GT_column = 0
@@ -185,6 +189,8 @@ PF_row = 0
 PF_column = 0
 CL_row = 0
 CL_column = 0
+TOS_row = 0
+TOS_column = 0
 
 fig1, axs1 = plt.subplots(5, 4)
 fig2, axs2 = plt.subplots(5, 4)
@@ -259,6 +265,17 @@ for t in tqdm(CL_files, "Loading vCluster trajectories..."):
     if CL_column % 4 == 0 and CL_column != 0:
         CL_row += 1
         CL_column = 0
+
+for t in tqdm(TOS_files, "Loading TOS trajectories..."):
+    TOS_trajs = np.loadtxt(os.path.join(TOS_path, t), delimiter=" ")[:, :4]
+    TOS_number = int(re.findall("\d+", t)[0])
+    TOS_trajs = np.delete(TOS_trajs, (0), axis=0)
+    TOS_list.append(TOS_trajs)
+    TOS_latency.append(TOS_trajs[:, 3])
+    TOS_column += 1
+    if TOS_column % 4 == 0 and TOS_column != 0:
+        TOS_row += 1
+        TOS_column = 0
 
 # X and Y Position COMPARISON PUCK vs GT
 plt.setp(axs1[-1, :], xlabel='Time [s]')
@@ -385,11 +402,11 @@ time_th = 0.01
 PUCK_error_static = []
 PF_error_static = []
 CL_error_static = []
+TOS_error_static = []
 PUCK_error_time = []
-PIM_error_static = []
-TOS_error_time = []
 PF_error_time = []
 CL_error_time = []
+TOS_error_time = []
 
 # PERCENTAGE OF VALID POSITIONS
 track_seq = 0
@@ -409,6 +426,10 @@ for gt_seq in GT_list:
         CL_min_time_diff = np.min(CL_diff_time)
         CL_min_index = np.argmin(CL_diff_time)
 
+        TOS_diff_time = abs(TOS_list[track_seq][:, 0] - gt_seq[j, 0])
+        TOS_min_time_diff = np.min(TOS_diff_time)
+        TOS_min_index = np.argmin(TOS_diff_time)
+
         if PUCK_min_time_diff < time_th:
             PUCK_error_static.append(calc_distance(PUCK_list[track_seq][PUCK_min_index, 1], PUCK_list[track_seq][PUCK_min_index, 2], gt_seq[j,1], gt_seq[j,2]))
             PUCK_error_time.append(gt_seq[j,0])
@@ -425,6 +446,12 @@ for gt_seq in GT_list:
                               gt_seq[j, 1], gt_seq[j, 2]))
             CL_error_time.append(gt_seq[j, 0])
 
+        if TOS_min_time_diff < time_th:
+            TOS_error_static.append(
+                calc_distance(TOS_list[track_seq][TOS_min_index, 1], TOS_list[track_seq][TOS_min_index, 2],
+                              gt_seq[j, 1], gt_seq[j, 2]))
+            TOS_error_time.append(gt_seq[j, 0])
+
             # error.append(abs(track_list[track_seq][min_index, 1]-gt_seq[j,1]))
 
     # plt.figure()
@@ -438,8 +465,8 @@ for gt_seq in GT_list:
 np.savetxt("/data/iros_datasets/analysis_percentile/PUCK_static.txt", PUCK_error_static)
 np.savetxt("/data/iros_datasets/analysis_percentile/PF_static.txt", PF_error_static)
 np.savetxt("/data/iros_datasets/analysis_percentile/CL_static.txt", CL_error_static)
-np.savetxt("/data/iros_datasets/analysis_percentile/PF_static.txt", TOS_error_static)
-np.savetxt("/data/iros_datasets/analysis_percentile/CL_static.txt", PIM_error_static)
+np.savetxt("/data/iros_datasets/analysis_percentile/TOS_static.txt", TOS_error_static)
+# np.savetxt("/data/iros_datasets/analysis_percentile/CL_static.txt", PIM_error_static)
 
 PUCK_mean_error_static = np.mean(PUCK_error_static)
 PUCK_std_error_static = np.std(PUCK_error_static)
@@ -447,15 +474,18 @@ PF_mean_error_static = np.mean(PF_error_static)
 PF_std_error_static = np.std(PF_error_static)
 CL_mean_error_static = np.mean(CL_error_static)
 CL_std_error_static = np.std(CL_error_static)
+TOS_mean_error_static = np.mean(TOS_error_static)
+TOS_std_error_static = np.std(TOS_error_static)
 print("PUCK="+str(PUCK_mean_error_static)+"+-"+str(PUCK_std_error_static))
 print("PF="+str(PF_mean_error_static)+"+-"+str(PF_std_error_static))
 print("CL="+str(CL_mean_error_static)+"+-"+str(CL_std_error_static))
+print("TOS="+str(TOS_mean_error_static)+"+-"+str(TOS_std_error_static))
 
-alg_names=["PUCK", "PFT", "Cluster"]
+alg_names=["PUCK", "PFT", "Cluster", "TOS"]
 color_bar = ['blue', 'skyblue', 'darkcyan']
 n_items = np.arange(len(alg_names))
-mean_comparison_error = [PUCK_mean_error_static, PF_mean_error_static, CL_mean_error_static]
-std_comparison_error = [PUCK_std_error_static, PF_std_error_static, CL_std_error_static]
+mean_comparison_error = [PUCK_mean_error_static, PF_mean_error_static, CL_mean_error_static, TOS_mean_error_static]
+std_comparison_error = [PUCK_std_error_static, PF_std_error_static, CL_std_error_static, TOS_std_error_static]
 
 fig, ax = plt.subplots()
 ax.bar(n_items, mean_comparison_error, yerr=std_comparison_error, align='center', ecolor='black', alpha=0.5, capsize=10)
@@ -473,13 +503,14 @@ ax.yaxis.grid(True)
 PUCK_succ_static = []
 PF_succ_static = []
 CL_succ_static = []
+TOS_succ_static = []
 num_thresholds = 30
 for i in range(num_thresholds):
     PUCK_succ_static.append(100*(len(np.where(np.array(PUCK_error_static) < i)[0]) / len(PUCK_error_static)))
     PF_succ_static.append(100*(len(np.where(np.array(PF_error_static) < i)[0]) / len(PF_error_static)))
     CL_succ_static.append(100*(len(np.where(np.array(CL_error_static) < i)[0]) / len(CL_error_static)))
-    PIM_succ_static.append(100 * (len(np.where(np.array(PF_error_static) < i)[0]) / len(PF_error_static)))
-    TOS_succ_static.append(100 * (len(np.where(np.array(CL_error_static) < i)[0]) / len(CL_error_static)))
+    # PIM_succ_static.append(100 * (len(np.where(np.array(PF_error_static) < i)[0]) / len(PF_error_static)))
+    TOS_succ_static.append(100 * (len(np.where(np.array(TOS_error_static) < i)[0]) / len(TOS_error_static)))
 
 
 # # MEAN LATENCY
@@ -562,20 +593,24 @@ PUCK_path = "../../../../data/iros_datasets/exp"+str(exp_number)+"/Ours_2"
 GT_path = "../../../../data/iros_datasets/exp"+str(exp_number)+"/GT_2"
 PF_path = "../../../../data/iros_datasets/exp"+str(exp_number)+"/vPFT_2"
 CL_path = "../../../../data/iros_datasets/exp"+str(exp_number)+"/vCluster_2"
+TOS_path = "../../../../data/iros_datasets/exp"+str(exp_number)+"/TOS"
 
 PUCK_files = sorted([traj for traj in os.listdir(os.path.join(os.path.dirname(os.path.abspath(__file__)), PUCK_path)) if traj.endswith('.txt')])
 GT_files = sorted([traj for traj in os.listdir(os.path.join(os.path.dirname(os.path.abspath(__file__)), GT_path)) if traj.endswith('.txt')])
 PF_files = sorted([traj for traj in os.listdir(os.path.join(os.path.dirname(os.path.abspath(__file__)), PF_path)) if traj.endswith('.txt')])
 CL_files = sorted([traj for traj in os.listdir(os.path.join(os.path.dirname(os.path.abspath(__file__)), CL_path)) if traj.endswith('.txt')])
+TOS_files = sorted([traj for traj in os.listdir(os.path.join(os.path.dirname(os.path.abspath(__file__)), TOS_path)) if traj.endswith('.txt')])
 
 detection = []
 PUCK_list = []
 GT_list = []
 PF_list = []
 CL_list = []
+TOS_list = []
 PUCK_latency = []
 PF_latency = []
 CL_latency = []
+TOS_latency = []
 
 GT_row = 0
 GT_column = 0
@@ -585,6 +620,8 @@ PF_row = 0
 PF_column = 0
 CL_row = 0
 CL_column = 0
+TOS_row = 0
+TOS_column = 0
 
 fig1, axs1 = plt.subplots(5, 4)
 fig2, axs2 = plt.subplots(5, 4)
@@ -659,6 +696,17 @@ for t in tqdm(CL_files, "Loading vCluster trajectories..."):
     if CL_column % 4 == 0 and CL_column != 0:
         CL_row += 1
         CL_column = 0
+
+for t in tqdm(TOS_files, "Loading vCluster trajectories..."):
+    TOS_trajs = np.loadtxt(os.path.join(TOS_path, t), delimiter=" ")[:, :4]
+    TOS_number = int(re.findall("\d+", t)[0])
+    TOS_trajs = np.delete(TOS_trajs, (0), axis=0)
+    TOS_list.append(TOS_trajs)
+    TOS_latency.append(TOS_trajs[:, 3])
+    TOS_column += 1
+    if TOS_column % 4 == 0 and TOS_column != 0:
+        TOS_row += 1
+        TOS_column = 0
 
 # X and Y Position COMPARISON PUCK vs GT
 plt.setp(axs1[-1, :], xlabel='Time [s]')
@@ -758,6 +806,7 @@ TOS_error_moving = []
 PUCK_error_time = []
 PF_error_time = []
 CL_error_time = []
+TOS_error_time = []
 
 # PERCENTAGE OF VALID POSITIONS
 track_seq = 0
@@ -777,6 +826,10 @@ for gt_seq in GT_list:
         CL_min_time_diff = np.min(CL_diff_time)
         CL_min_index = np.argmin(CL_diff_time)
 
+        TOS_diff_time = abs(TOS_list[track_seq][:, 0] - gt_seq[j, 0])
+        TOS_min_time_diff = np.min(TOS_diff_time)
+        TOS_min_index = np.argmin(TOS_diff_time)
+
         if PUCK_min_time_diff < time_th:
             PUCK_error_moving.append(calc_distance(PUCK_list[track_seq][PUCK_min_index, 1], PUCK_list[track_seq][PUCK_min_index, 2], gt_seq[j,1], gt_seq[j,2]))
             PUCK_error_time.append(gt_seq[j,0])
@@ -793,6 +846,12 @@ for gt_seq in GT_list:
                               gt_seq[j, 1], gt_seq[j, 2]))
             CL_error_time.append(gt_seq[j, 0])
 
+        if TOS_min_time_diff < time_th:
+            TOS_error_moving.append(
+                calc_distance(TOS_list[track_seq][TOS_min_index, 1], TOS_list[track_seq][TOS_min_index, 2],
+                              gt_seq[j, 1], gt_seq[j, 2]))
+            TOS_error_time.append(gt_seq[j, 0])
+
             # error.append(abs(track_list[track_seq][min_index, 1]-gt_seq[j,1]))
 
     # plt.figure()
@@ -806,8 +865,7 @@ for gt_seq in GT_list:
 np.savetxt("/data/iros_datasets/analysis_percentile/PUCK_moving.txt", PUCK_error_moving)
 np.savetxt("/data/iros_datasets/analysis_percentile/PF_moving.txt", PF_error_moving)
 np.savetxt("/data/iros_datasets/analysis_percentile/CL_moving.txt", CL_error_moving)
-np.savetxt("/data/iros_datasets/analysis_percentile/PF_moving.txt", PIM_error_moving)
-np.savetxt("/data/iros_datasets/analysis_percentile/CL_moving.txt", TOS_error_moving)
+np.savetxt("/data/iros_datasets/analysis_percentile/TOS_moving.txt", TOS_error_moving)
 
 PUCK_mean_error_moving = np.mean(PUCK_error_moving)
 PUCK_std_error_moving = np.std(PUCK_error_moving)
@@ -815,6 +873,8 @@ PF_mean_error_moving = np.mean(PF_error_moving)
 PF_std_error_moving = np.std(PF_error_moving)
 CL_mean_error_moving = np.mean(CL_error_moving)
 CL_std_error_moving = np.std(CL_error_moving)
+TOS_mean_error_moving = np.mean(TOS_error_moving)
+TOS_std_error_moving = np.std(TOS_error_moving)
 # PIM_mean_error_moving = np.mean(PIM_error_moving)
 # PIM_std_error_moving = np.std(PIM_error_moving)
 # TOS_mean_error_moving = np.mean(TOS_error_moving)
@@ -823,13 +883,13 @@ print("PUCK="+str(PUCK_mean_error_moving)+"+-"+str(PUCK_std_error_moving))
 print("PF="+str(PF_mean_error_moving)+"+-"+str(PF_std_error_moving))
 print("CL="+str(CL_mean_error_moving)+"+-"+str(CL_std_error_moving))
 # print("PIM="+str(PIM_mean_error_moving)+"+-"+str(PIM_std_error_moving))
-# print("TOS="+str(TOS_mean_error_moving)+"+-"+str(TOS_std_error_moving))
+print("TOS="+str(TOS_mean_error_moving)+"+-"+str(TOS_std_error_moving))
 
-alg_names=["PUCK", "PFT", "Cluster"]
+alg_names=["PUCK", "PFT", "Cluster", "TOS"]
 color_bar = ['blue', 'skyblue', 'darkcyan']
 n_items = np.arange(len(alg_names))
-mean_comparison_error = [PUCK_mean_error_moving, PF_mean_error_moving, CL_mean_error_moving]
-std_comparison_error = [PUCK_std_error_moving, PF_std_error_moving, CL_std_error_moving]
+mean_comparison_error = [PUCK_mean_error_moving, PF_mean_error_moving, CL_mean_error_moving, TOS_mean_error_moving]
+std_comparison_error = [PUCK_std_error_moving, PF_std_error_moving, CL_std_error_moving, TOS_std_error_moving]
 
 fig, ax = plt.subplots()
 ax.bar(n_items, mean_comparison_error, yerr=std_comparison_error, align='center', ecolor='black', alpha=0.5, capsize=10)
@@ -848,26 +908,25 @@ PUCK_succ_rates_moving = []
 PF_succ_rates_moving = []
 CL_succ_rates_moving = []
 TOS_succ_rates_moving = []
-PIM_succ_rates_moving = []
+# PIM_succ_rates_moving = []
 num_thresholds = 30
 for i in range(num_thresholds):
     PUCK_succ_rates_moving.append(100*(len(np.where(np.array(PUCK_error_moving) < i)[0]) / len(PUCK_error_moving)))
     PF_succ_rates_moving.append(100*(len(np.where(np.array(PF_error_moving) < i)[0]) / len(PF_error_moving)))
     CL_succ_rates_moving.append(100*(len(np.where(np.array(CL_error_moving) < i)[0]) / len(CL_error_moving)))
     TOS_succ_rates_moving.append(100*(len(np.where(np.array(TOS_error_moving) < i)[0]) / len(TOS_error_moving)))
-    PIM_succ_rates_moving.append(100*(len(np.where(np.array(PIM_error_moving) < i)[0]) / len(PIM_error_moving)))
 
-plt.figure()
+plt.figure(figsize=(10, 6))
 plt.plot(range(num_thresholds), PUCK_succ_rates_moving, linewidth=3, label="PUCK", color="tab:blue")
 plt.plot(range(num_thresholds), PF_succ_rates_moving, linewidth=3, label="PFT", color="tab:orange")
 plt.plot(range(num_thresholds), CL_succ_rates_moving,  linewidth=3, label="Cluster", color="tab:green")
-plt.plot(range(num_thresholds), PIM_succ_rates_moving,  linewidth=3, label="Cluster", color="tab:green")
-plt.plot(range(num_thresholds), TOS_succ_rates_moving,  linewidth=3, label="Cluster", color="tab:green")
+# plt.plot(range(num_thresholds), PIM_succ_rates_moving,  linewidth=3, label="Cluster", color="tab:green")
+# plt.plot(range(num_thresholds), TOS_succ_rates_moving,  linewidth=3, label="TOS", color="tab:purple")
 plt.plot(range(num_thresholds), PUCK_succ_static,  linewidth=3, ls='dashed', color="tab:blue")
 plt.plot(range(num_thresholds), PF_succ_static,  linewidth=3, ls='dashed', color="tab:orange")
 plt.plot(range(num_thresholds), CL_succ_static,  linewidth=3, ls='dashed', color="tab:green")
-plt.plot(range(num_thresholds), PIM_succ_static,  linewidth=3, ls='dashed', color="tab:orange")
-plt.plot(range(num_thresholds), TOS_succ_static,  linewidth=3, ls='dashed', color="tab:green")
+# plt.plot(range(num_thresholds), PIM_succ_static,  linewidth=3, ls='dashed', color="tab:orange")
+# plt.plot(range(num_thresholds), TOS_succ_static,  linewidth=3, ls='dashed', color="tab:purple")
 plt.legend(bbox_to_anchor=(0.65, 0.8), loc='upper left', borderaxespad=0)
 plt.xlabel("Threshold [pix]")
 plt.ylabel("Percentage of \n valid positions [%]")
