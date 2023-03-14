@@ -62,8 +62,14 @@ public:
 
     // instead of making them every-time, maybe we want to load a set. that makes
     // sense also if the shapes are used in other applications.
-    std::vector<cv::Mat> loadShapes() {
-        return {cv::Mat::zeros(1, 1, CV_8U)};
+    void loadShapes() {
+        shapes.push_back(cv::imread("../objects/star640.png"));
+        cv::imshow("shape", shapes.back());
+        cv::waitKey();
+        shapes.push_back(cv::imread("../objects/square640.png"));
+        cv::imshow("shape", shapes.back());
+        cv::waitKey();
+        cv::destroyWindow("shape");
     }
 
 
@@ -201,7 +207,8 @@ public:
         im_sz = {rf.check("width", yarp::os::Value(640)).asInt32(),
                  rf.check("height", yarp::os::Value(480)).asInt32()};
         afsd.init({640, 480});
-        afsd.makeShapes(0.4);
+        //afsd.makeShapes(0.4);
+        afsd.loadShapes();
         if(!input.open(getName("/AE:i"))) {
             yError() << "Port Open Error" << getName("/AE:i");
             return false;
@@ -252,8 +259,6 @@ public:
 
             cv::cvtColor(obs_s, obs_sRGB, cv::COLOR_GRAY2BGR);
             cv::circle(obs_sRGB, {b.x+obs_s.cols/2, b.y+obs_s.rows/2}, 2, cv::Vec3b(0, 255, 0), cv::FILLED); 
-
-            //cv::Point c = {little_shape.size().width/2, little_shape.size().height/2};
 
             cv::Point c = {im_sz.width/2, im_sz.height/2};
 
